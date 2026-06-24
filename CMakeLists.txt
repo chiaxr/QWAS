@@ -1,17 +1,22 @@
 cmake_minimum_required(VERSION 3.16)
 
+project(QWAS LANGUAGES CXX)
+
 option(QWAS_BUILD_NATIVE "Build the desktop game" ON)
 option(QWAS_BUILD_WEB "Build the Emscripten web game" OFF)
 
-if(QWAS_BUILD_WEB AND NOT EMSCRIPTEN)
+set(QWAS_IS_EMSCRIPTEN FALSE)
+if(EMSCRIPTEN OR CMAKE_SYSTEM_NAME STREQUAL "Emscripten")
+    set(QWAS_IS_EMSCRIPTEN TRUE)
+endif()
+
+if(QWAS_BUILD_WEB AND NOT QWAS_IS_EMSCRIPTEN)
     message(FATAL_ERROR "QWAS_BUILD_WEB requires configuring with Emscripten. Use `emcmake cmake ... -DQWAS_BUILD_WEB=ON`.")
 endif()
 
-if(EMSCRIPTEN AND QWAS_BUILD_NATIVE)
+if(QWAS_IS_EMSCRIPTEN AND QWAS_BUILD_NATIVE)
     message(FATAL_ERROR "QWAS_BUILD_NATIVE cannot be built with Emscripten. Configure web builds with -DQWAS_BUILD_NATIVE=OFF.")
 endif()
-
-project(QWAS LANGUAGES CXX)
 
 # CMake 4.x dropped support for cmake_minimum_required < 3.5.
 # This allows FetchContent'd projects (like raylib 5.0) to still configure.
