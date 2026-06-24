@@ -76,12 +76,12 @@ void Game::UpdateSettings(float dt) {
         { &THRUST_RAMP_UP,   1.0f,  20.0f, 0.5f   },
         { &THRUST_RAMP_DOWN, 1.0f,  30.0f, 0.5f   },
         { &ARM_LENGTH,       0.05f, 1.0f,  0.01f  },
-        { &I_PITCH,          0.001f,0.05f, 0.001f },
-        { &I_YAW,            0.001f,0.05f, 0.001f },
-        { &I_ROLL,           0.001f,0.05f, 0.001f },
-        { &LIN_DRAG,         0.0f,  3.0f,  0.05f  },
+        { &I_PITCH,          0.01f, 1.0f,  0.05f  },
+        { &I_YAW,            0.01f, 1.0f,  0.05f  },
+        { &I_ROLL,           0.01f, 1.0f,  0.05f  },
+        { &LIN_DRAG,         0.0f,  3.0f,  0.5f   },
         { &ANG_DRAG,         0.0f,  10.0f, 0.1f   },
-        { &K_YAW,            0.001f,0.2f,  0.001f },
+        { &K_YAW,            0.01f, 0.2f,  0.01f  },
     };
     constexpr int COUNT = 12;
 
