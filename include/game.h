@@ -29,6 +29,8 @@ struct Game {
     float      deadTimer;        // counts down; press R only when <= 0
     float      bestScore;        // best progress % this session
     int        settingsSelectedIdx;
+    float      touchGuideAlpha;  // fades after the first motor input
+    bool       touchGuideDismissed;
 
     void Init();
     void Reset();
