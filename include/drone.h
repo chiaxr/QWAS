@@ -5,15 +5,15 @@
 // Physics constants (SI units: meters, kg, seconds) — runtime-mutable for settings page
 constexpr float DRONE_MASS_DEFAULT       = 0.5f;
 constexpr float GRAVITY_DEFAULT          = 9.81f;
-constexpr float MAX_THRUST_DEFAULT       = 3.0f;
-constexpr float THRUST_RAMP_UP_DEFAULT   = 6.0f;
+constexpr float MAX_THRUST_DEFAULT       = 5.0f;
+constexpr float THRUST_RAMP_UP_DEFAULT   = 10.0f;
 constexpr float THRUST_RAMP_DOWN_DEFAULT = 10.0f;
 constexpr float ARM_LENGTH_DEFAULT       = 0.25f;
-constexpr float I_PITCH_DEFAULT          = 0.004f;
-constexpr float I_YAW_DEFAULT            = 0.007f;
-constexpr float I_ROLL_DEFAULT           = 0.004f;
-constexpr float LIN_DRAG_DEFAULT         = 0.4f;
-constexpr float ANG_DRAG_DEFAULT         = 2.0f;
+constexpr float I_PITCH_DEFAULT          = 0.4f;
+constexpr float I_YAW_DEFAULT            = 0.7f;
+constexpr float I_ROLL_DEFAULT           = 0.4f;
+constexpr float LIN_DRAG_DEFAULT         = 1.0f;
+constexpr float ANG_DRAG_DEFAULT         = 0.5f;
 constexpr float K_YAW_DEFAULT            = 0.02f;
 
 inline float DRONE_MASS       = DRONE_MASS_DEFAULT;
