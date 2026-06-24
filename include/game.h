@@ -11,7 +11,7 @@ constexpr float PAD_WORLD_Z   = -25.0f;  // landing pad distance (meters forward
 constexpr float PAD_TOP_Y    = 0.10f;   // top surface of any pad (cube: center 0.05, height 0.10)
 constexpr float DRONE_REST_Y = 0.13f;   // drone center when resting on a pad (PAD_TOP_Y + body half-height 0.03)
 
-enum class GameState { MENU, PLAYING, DEAD, WIN };
+enum class GameState { MENU, PLAYING, DEAD, WIN, SETTINGS };
 
 struct LandingPad {
     Vector3 position;  // center
@@ -26,8 +26,9 @@ struct Game {
     LandingPad startPad;  // spawn pad; ground contact here is never a crash
     LandingPad pad;       // destination pad
     Camera3D   camera;
-    float      deadTimer;  // counts down; press R only when <= 0
-    float      bestScore;  // best progress % this session
+    float      deadTimer;        // counts down; press R only when <= 0
+    float      bestScore;        // best progress % this session
+    int        settingsSelectedIdx;
 
     void Init();
     void Reset();
@@ -39,11 +40,13 @@ private:
     void UpdatePlaying(float dt);
     void UpdateDead(float dt);
     void UpdateWin(float dt);
+    void UpdateSettings(float dt);
 
     void DrawMenu() const;
     void DrawPlaying() const;
     void DrawDead() const;
     void DrawWin() const;
+    void DrawSettings() const;
 
     void UpdateCamera(float dt);
     void CheckCollisions();

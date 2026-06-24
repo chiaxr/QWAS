@@ -27,6 +27,7 @@ void Game::Init() {
     state = GameState::MENU;
     drone.Init({0, DRONE_REST_Y, 0});
     deadTimer = 0;
+    settingsSelectedIdx = 0;
 }
 
 void Game::Reset() {
@@ -45,10 +46,11 @@ void Game::Reset() {
 
 void Game::Update(float dt) {
     switch (state) {
-        case GameState::MENU:    UpdateMenu(dt);    break;
-        case GameState::PLAYING: UpdatePlaying(dt); break;
-        case GameState::DEAD:    UpdateDead(dt);    break;
-        case GameState::WIN:     UpdateWin(dt);     break;
+        case GameState::MENU:     UpdateMenu(dt);     break;
+        case GameState::PLAYING:  UpdatePlaying(dt);  break;
+        case GameState::DEAD:     UpdateDead(dt);     break;
+        case GameState::WIN:      UpdateWin(dt);      break;
+        case GameState::SETTINGS: UpdateSettings(dt); break;
     }
 }
 
@@ -57,13 +59,65 @@ void Game::UpdateMenu(float dt) {
     if (IsKeyPressed(KEY_SPACE)) {
         state = GameState::PLAYING;
     }
+    if (IsKeyPressed(KEY_TAB)) {
+        settingsSelectedIdx = 0;
+        state = GameState::SETTINGS;
+    }
+}
+
+void Game::UpdateSettings(float dt) {
+    (void)dt;
+
+    struct Entry { float* val; float minV; float maxV; float step; };
+    Entry entries[] = {
+        { &DRONE_MASS,       0.1f,  5.0f,  0.05f  },
+        { &GRAVITY,          0.0f,  20.0f, 0.1f   },
+        { &MAX_THRUST,       0.5f,  10.0f, 0.1f   },
+        { &THRUST_RAMP_UP,   1.0f,  20.0f, 0.5f   },
+        { &THRUST_RAMP_DOWN, 1.0f,  30.0f, 0.5f   },
+        { &ARM_LENGTH,       0.05f, 1.0f,  0.01f  },
+        { &I_PITCH,          0.001f,0.05f, 0.001f },
+        { &I_YAW,            0.001f,0.05f, 0.001f },
+        { &I_ROLL,           0.001f,0.05f, 0.001f },
+        { &LIN_DRAG,         0.0f,  3.0f,  0.05f  },
+        { &ANG_DRAG,         0.0f,  10.0f, 0.1f   },
+        { &K_YAW,            0.001f,0.2f,  0.001f },
+    };
+    constexpr int COUNT = 12;
+
+    if (IsKeyPressed(KEY_BACKSPACE)) { state = GameState::MENU; return; }
+
+    if (IsKeyPressed(KEY_R)) {
+        DRONE_MASS       = DRONE_MASS_DEFAULT;
+        GRAVITY          = GRAVITY_DEFAULT;
+        MAX_THRUST       = MAX_THRUST_DEFAULT;
+        THRUST_RAMP_UP   = THRUST_RAMP_UP_DEFAULT;
+        THRUST_RAMP_DOWN = THRUST_RAMP_DOWN_DEFAULT;
+        ARM_LENGTH       = ARM_LENGTH_DEFAULT;
+        I_PITCH          = I_PITCH_DEFAULT;
+        I_YAW            = I_YAW_DEFAULT;
+        I_ROLL           = I_ROLL_DEFAULT;
+        LIN_DRAG         = LIN_DRAG_DEFAULT;
+        ANG_DRAG         = ANG_DRAG_DEFAULT;
+        K_YAW            = K_YAW_DEFAULT;
+        return;
+    }
+
+    if (IsKeyPressed(KEY_UP))   settingsSelectedIdx = (settingsSelectedIdx - 1 + COUNT) % COUNT;
+    if (IsKeyPressed(KEY_DOWN)) settingsSelectedIdx = (settingsSelectedIdx + 1) % COUNT;
+
+    Entry& e = entries[settingsSelectedIdx];
+    if (IsKeyDown(KEY_LEFT))  *e.val = fmaxf(e.minV, *e.val - e.step);
+    if (IsKeyDown(KEY_RIGHT)) *e.val = fminf(e.maxV, *e.val + e.step);
 }
 
 void Game::UpdatePlaying(float dt) {
+    if (IsKeyPressed(KEY_R)) { Reset(); return; }
+
     drone.SetRotorInput(ROTOR_FRONT_LEFT, IsKeyDown(KEY_Q), dt);
     drone.SetRotorInput(ROTOR_FRONT_RIGHT, IsKeyDown(KEY_W), dt);
-    drone.SetRotorInput(ROTOR_BACK_LEFT, IsKeyDown(KEY_A), dt);
-    drone.SetRotorInput(ROTOR_BACK_RIGHT, IsKeyDown(KEY_S), dt);
+    drone.SetRotorInput(ROTOR_REAR_LEFT, IsKeyDown(KEY_A), dt);
+    drone.SetRotorInput(ROTOR_REAR_RIGHT, IsKeyDown(KEY_S), dt);
 
     drone.Update(dt);
     UpdateCamera(dt);
@@ -186,10 +240,11 @@ void Game::Draw() const {
 
 void Game::DrawOverlay() const {
     switch (state) {
-        case GameState::MENU:    DrawMenu();    break;
-        case GameState::PLAYING: DrawPlaying(); break;
-        case GameState::DEAD:    DrawDead();    break;
-        case GameState::WIN:     DrawWin();     break;
+        case GameState::MENU:     DrawMenu();     break;
+        case GameState::PLAYING:  DrawPlaying();  break;
+        case GameState::DEAD:     DrawDead();     break;
+        case GameState::WIN:      DrawWin();      break;
+        case GameState::SETTINGS: DrawSettings(); break;
     }
 }
 
@@ -257,7 +312,8 @@ void Game::DrawMenu() const {
         "Land gently (low speed, nearly level) to win.",
         "",
         "SPACE  -  Start",
-        "R      -  Restart after crash"
+        "R      -  Restart at any time",
+        "TAB    -  Physics Settings"
     };
     int lineY = by + 150;
     for (const char* line : lines) {
@@ -322,4 +378,68 @@ void Game::DrawWin() const {
     DrawCenteredText("Press R to fly again", screenHeight / 2 + 70, 24, LIGHTGRAY);
 
     drone.DrawHUDBars(screenWidth, screenHeight);
+}
+
+void Game::DrawSettings() const {
+    struct Entry { const char* label; const char* unit; float* val; float minV; float maxV; };
+    Entry entries[] = {
+        { "Mass",            "kg",     &DRONE_MASS,       0.1f,  5.0f  },
+        { "Gravity",         "m/s\xb2",&GRAVITY,          0.0f,  20.0f },
+        { "Max Thrust",      "N",      &MAX_THRUST,       0.5f,  10.0f },
+        { "Thrust Ramp Up",  "N/s",    &THRUST_RAMP_UP,   1.0f,  20.0f },
+        { "Thrust Ramp Down","N/s",    &THRUST_RAMP_DOWN, 1.0f,  30.0f },
+        { "Arm Length",      "m",      &ARM_LENGTH,       0.05f, 1.0f  },
+        { "Inertia Pitch",   "kg\xb7m\xb2",&I_PITCH,     0.001f,0.05f },
+        { "Inertia Yaw",     "kg\xb7m\xb2",&I_YAW,       0.001f,0.05f },
+        { "Inertia Roll",    "kg\xb7m\xb2",&I_ROLL,       0.001f,0.05f },
+        { "Linear Drag",     "/s",     &LIN_DRAG,         0.0f,  3.0f  },
+        { "Angular Drag",    "/s",     &ANG_DRAG,         0.0f,  10.0f },
+        { "Yaw Coeff",       "",       &K_YAW,            0.001f,0.2f  },
+    };
+    constexpr int COUNT = 12;
+    constexpr int ROW_H = 34;
+
+    int bw = 820, bh = 60 + COUNT * ROW_H + 50;
+    int bx = (screenWidth  - bw) / 2;
+    int by = (screenHeight - bh) / 2;
+    DrawRectangle(bx, by, bw, bh, {0, 0, 0, 180});
+
+    DrawCenteredText("PHYSICS SETTINGS", by + 14, 28, WHITE);
+
+    int sliderX  = bx + 290;
+    int sliderW  = 300;
+    int labelX   = bx + 20;
+    int valueX   = bx + bw - 120;
+
+    for (int i = 0; i < COUNT; i++) {
+        int ry = by + 54 + i * ROW_H;
+        Entry& e = entries[i];
+
+        if (i == settingsSelectedIdx)
+            DrawRectangle(bx + 2, ry, bw - 4, ROW_H - 2, {255, 255, 255, 30});
+
+        Color textCol = (i == settingsSelectedIdx) ? WHITE : LIGHTGRAY;
+
+        // Label
+        DrawText(e.label, labelX, ry + 8, 18, textCol);
+
+        // Slider track
+        DrawRectangle(sliderX, ry + 12, sliderW, 10, {80, 80, 80, 255});
+
+        // Slider fill
+        float t = (*e.val - e.minV) / (e.maxV - e.minV);
+        int fillW = (int)(t * sliderW);
+        Color fillCol = (i == settingsSelectedIdx) ? WHITE : GRAY;
+        DrawRectangle(sliderX, ry + 12, fillW, 10, fillCol);
+
+        // Slider thumb
+        DrawRectangle(sliderX + fillW - 3, ry + 8, 6, 18,
+                      (i == settingsSelectedIdx) ? YELLOW : DARKGRAY);
+
+        // Value + unit
+        DrawText(TextFormat("%.3g %s", *e.val, e.unit), valueX, ry + 8, 17, textCol);
+    }
+
+    DrawCenteredText("Up/Down: Select   Left/Right: Adjust   R: Reset defaults   Backspace: Back",
+                     by + bh - 26, 16, {180, 180, 180, 255});
 }

@@ -2,19 +2,32 @@
 #include "raylib.h"
 #include "raymath.h"
 
-// Physics constants (SI units: meters, kg, seconds)
-constexpr float DRONE_MASS       = 0.5f;
-constexpr float GRAVITY          = 9.81f;
-constexpr float MAX_THRUST       = 3.0f;   // N per motor; hover needs ~1.23N each
-constexpr float THRUST_RAMP_UP   = 6.0f;   // N/s (0 → max in 0.5s)
-constexpr float THRUST_RAMP_DOWN = 10.0f;  // N/s (max → 0 in 0.3s)
-constexpr float ARM_LENGTH       = 0.25f;  // m (center to motor)
-constexpr float I_PITCH          = 0.004f; // kg·m² (around body-X, right-wing axis)
-constexpr float I_YAW            = 0.007f; // kg·m² (around body-Y, up axis)
-constexpr float I_ROLL           = 0.004f; // kg·m² (around body-Z, tail axis)
-constexpr float LIN_DRAG         = 0.4f;   // /s
-constexpr float ANG_DRAG         = 2.0f;   // /s
-constexpr float K_YAW            = 0.02f;  // reactive yaw coefficient
+// Physics constants (SI units: meters, kg, seconds) — runtime-mutable for settings page
+constexpr float DRONE_MASS_DEFAULT       = 0.5f;
+constexpr float GRAVITY_DEFAULT          = 9.81f;
+constexpr float MAX_THRUST_DEFAULT       = 3.0f;
+constexpr float THRUST_RAMP_UP_DEFAULT   = 6.0f;
+constexpr float THRUST_RAMP_DOWN_DEFAULT = 10.0f;
+constexpr float ARM_LENGTH_DEFAULT       = 0.25f;
+constexpr float I_PITCH_DEFAULT          = 0.004f;
+constexpr float I_YAW_DEFAULT            = 0.007f;
+constexpr float I_ROLL_DEFAULT           = 0.004f;
+constexpr float LIN_DRAG_DEFAULT         = 0.4f;
+constexpr float ANG_DRAG_DEFAULT         = 2.0f;
+constexpr float K_YAW_DEFAULT            = 0.02f;
+
+inline float DRONE_MASS       = DRONE_MASS_DEFAULT;
+inline float GRAVITY          = GRAVITY_DEFAULT;
+inline float MAX_THRUST       = MAX_THRUST_DEFAULT;   // N per motor; hover needs ~1.23N each
+inline float THRUST_RAMP_UP   = THRUST_RAMP_UP_DEFAULT;   // N/s (0 → max in 0.5s)
+inline float THRUST_RAMP_DOWN = THRUST_RAMP_DOWN_DEFAULT;  // N/s (max → 0 in 0.3s)
+inline float ARM_LENGTH       = ARM_LENGTH_DEFAULT;  // m (center to motor)
+inline float I_PITCH          = I_PITCH_DEFAULT; // kg·m² (around body-X, right-wing axis)
+inline float I_YAW            = I_YAW_DEFAULT;   // kg·m² (around body-Y, up axis)
+inline float I_ROLL           = I_ROLL_DEFAULT;  // kg·m² (around body-Z, tail axis)
+inline float LIN_DRAG         = LIN_DRAG_DEFAULT;   // /s
+inline float ANG_DRAG         = ANG_DRAG_DEFAULT;   // /s
+inline float K_YAW            = K_YAW_DEFAULT;  // reactive yaw coefficient
 
 // Body frame convention:
 //   body-X = right wing
@@ -26,7 +39,7 @@ constexpr float K_YAW            = 0.02f;  // reactive yaw coefficient
 //   A S    <- rear (+Z side)
 
 constexpr int ROTOR_COUNT = 4;
-enum RotorID { ROTOR_FRONT_LEFT = 0, ROTOR_FRONT_RIGHT = 1, ROTOR_BACK_LEFT = 2, ROTOR_BACK_RIGHT = 3 };
+enum RotorID { ROTOR_FRONT_LEFT = 0, ROTOR_FRONT_RIGHT = 1, ROTOR_REAR_LEFT = 2, ROTOR_REAR_RIGHT = 3 };
 
 struct Rotor {
     float   thrust;     // current thrust [0, MAX_THRUST] N

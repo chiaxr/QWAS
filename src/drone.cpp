@@ -51,8 +51,8 @@ void Drone::Update(float dt) {
     }
 
     // Reactive yaw: Q,S spin CW; W,A spin CCW (opposite diagonals)
-    float tauY = K_YAW * (rotors[ROTOR_FRONT_LEFT].thrust + rotors[ROTOR_BACK_RIGHT].thrust
-                         - rotors[ROTOR_FRONT_RIGHT].thrust - rotors[ROTOR_BACK_LEFT].thrust);
+    float tauY = K_YAW * (rotors[ROTOR_FRONT_LEFT].thrust + rotors[ROTOR_REAR_RIGHT].thrust
+                         - rotors[ROTOR_FRONT_RIGHT].thrust - rotors[ROTOR_REAR_LEFT].thrust);
 
     // --- Angular acceleration and velocity (body frame) ---
     angularVel.x += (tauX / I_PITCH) * dt;
