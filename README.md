@@ -67,7 +67,7 @@ Platform notes:
 
 - macOS native builds link Cocoa, IOKit, and OpenGL frameworks.
 - Linux native builds use the normal raylib desktop dependencies such as OpenGL and X11/Wayland development packages.
-- The desktop build does not depend on Emscripten, JavaScript, web files, or GitHub Pages.
+- The desktop build does not depend on Emscripten, JavaScript, or web files.
 
 ## Local Emscripten Build
 
@@ -96,27 +96,7 @@ Serve locally with:
 emrun build-web/dist/index.html
 ```
 
-You can also serve `build-web/dist` with any static file server. The generated files use relative paths, so they work from a GitHub project Pages URL such as `/QWAS/`.
-
-## GitHub Pages
-
-The workflow in `.github/workflows/pages.yml` builds the Emscripten target for pushes to `main`, pull requests targeting `main`, and manual runs. Pull requests compile and verify the web build but do not deploy. Pushes to `main`, and manual runs from `main`, deploy with GitHub's artifact-based Pages flow.
-
-### GitHub Pages Setup For Forks
-
-a. Open the fork's Actions tab and enable workflows if GitHub shows the fork workflow warning.
-
-b. Go to Settings → Actions → General and allow the actions used by the workflow.
-
-c. Leave default GITHUB_TOKEN permissions read-only; the workflow grants Pages permissions at job level.
-
-d. Go to Settings → Pages → Build and deployment → Source and select GitHub Actions.
-
-e. After the first deployment, go to Settings → Environments → github-pages and restrict deployment to main.
-
-f. No Pages branch, repository secret, PAT, or CNAME is required unless a custom domain is later added.
-
-g. GitHub Free requires the repository to be public for Pages.
+You can also serve `build-web/dist` with any static file server.
 
 ## Project Structure
 
