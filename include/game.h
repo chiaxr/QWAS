@@ -30,6 +30,8 @@ struct Game {
     float      winTimer;         // counts up from 0 on WIN entry (drives celebration)
     float      bestScore;        // best progress % this session
     int        settingsSelectedIdx;
+    float      touchGuideAlpha;  // fades after the first motor input
+    bool       touchGuideDismissed;
 
     void Init();
     void Reset();

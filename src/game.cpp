@@ -2,6 +2,60 @@
 #include "raymath.h"
 #include <cmath>
 
+namespace {
+constexpr float TOUCH_GUIDE_FADE_SPEED = 1.8f;
+
+Rectangle GetRotorTouchZone(RotorID id, int screenW, int screenH) {
+    float zoneW = screenW * 0.5f;
+    float zoneH = screenH * 0.5f;
+
+    switch (id) {
+        case ROTOR_FRONT_LEFT:
+            return {0.0f, 0.0f, zoneW, zoneH};
+        case ROTOR_FRONT_RIGHT:
+            return {screenW - zoneW, 0.0f, zoneW, zoneH};
+        case ROTOR_REAR_LEFT:
+            return {0.0f, screenH - zoneH, zoneW, zoneH};
+        case ROTOR_REAR_RIGHT:
+            return {screenW - zoneW, screenH - zoneH, zoneW, zoneH};
+    }
+
+    return {0.0f, 0.0f, 0.0f, 0.0f};
+}
+
+bool IsRotorTouchDown(RotorID id, int screenW, int screenH) {
+    Rectangle zone = GetRotorTouchZone(id, screenW, screenH);
+
+    if (IsMouseButtonDown(MOUSE_BUTTON_LEFT) && CheckCollisionPointRec(GetMousePosition(), zone))
+        return true;
+
+    int touchCount = GetTouchPointCount();
+    for (int i = 0; i < touchCount; i++) {
+        if (CheckCollisionPointRec(GetTouchPosition(i), zone))
+            return true;
+    }
+
+    return false;
+}
+
+void DrawRotorTouchZone(RotorID id, const Drone& drone, int screenW, int screenH, const char* label, float alpha) {
+    Rectangle zone = GetRotorTouchZone(id, screenW, screenH);
+    Color color = drone.rotors[id].color;
+    bool active = drone.rotors[id].thrust > 0.01f;
+
+    DrawRectangleRec(zone, Fade(color, alpha * (active ? 0.20f : 0.06f)));
+    DrawRectangleLinesEx(zone, active ? 4.0f : 2.0f, Fade(color, alpha * (active ? 0.80f : 0.35f)));
+
+    int fontSize = 26;
+    int labelW = MeasureText(label, fontSize);
+    DrawText(label,
+             (int)(zone.x + (zone.width - labelW) * 0.5f),
+             (int)(zone.y + (zone.height - fontSize) * 0.5f),
+             fontSize,
+             Fade(color, alpha * 0.90f));
+}
+}  // namespace
+
 // ---------------------------------------------------------------------------
 //  Lifecycle
 // ---------------------------------------------------------------------------
@@ -29,12 +83,16 @@ void Game::Init() {
     deadTimer = 0;
     winTimer  = 0;
     settingsSelectedIdx = 0;
+    touchGuideAlpha = 1.0f;
+    touchGuideDismissed = false;
 }
 
 void Game::Reset() {
     drone.Init({0, DRONE_REST_Y, 0});
     deadTimer = 0;
     winTimer  = 0;
+    touchGuideAlpha = 1.0f;
+    touchGuideDismissed = false;
 
     camera.position = {0, 4, 8};
     camera.target   = {0, DRONE_REST_Y, 0};
@@ -116,10 +174,24 @@ void Game::UpdateSettings(float dt) {
 void Game::UpdatePlaying(float dt) {
     if (IsKeyPressed(KEY_R)) { Reset(); return; }
 
-    drone.SetRotorInput(ROTOR_FRONT_LEFT, IsKeyDown(KEY_Q), dt);
-    drone.SetRotorInput(ROTOR_FRONT_RIGHT, IsKeyDown(KEY_W), dt);
-    drone.SetRotorInput(ROTOR_REAR_LEFT, IsKeyDown(KEY_A), dt);
-    drone.SetRotorInput(ROTOR_REAR_RIGHT, IsKeyDown(KEY_S), dt);
+    int w = GetScreenWidth();
+    int h = GetScreenHeight();
+
+    bool frontLeftInput  = IsKeyDown(KEY_Q) || IsRotorTouchDown(ROTOR_FRONT_LEFT, w, h);
+    bool frontRightInput = IsKeyDown(KEY_W) || IsRotorTouchDown(ROTOR_FRONT_RIGHT, w, h);
+    bool rearLeftInput   = IsKeyDown(KEY_A) || IsRotorTouchDown(ROTOR_REAR_LEFT, w, h);
+    bool rearRightInput  = IsKeyDown(KEY_S) || IsRotorTouchDown(ROTOR_REAR_RIGHT, w, h);
+
+    if (frontLeftInput || frontRightInput || rearLeftInput || rearRightInput)
+        touchGuideDismissed = true;
+
+    if (touchGuideDismissed)
+        touchGuideAlpha = fmaxf(0.0f, touchGuideAlpha - TOUCH_GUIDE_FADE_SPEED * dt);
+
+    drone.SetRotorInput(ROTOR_FRONT_LEFT, frontLeftInput, dt);
+    drone.SetRotorInput(ROTOR_FRONT_RIGHT, frontRightInput, dt);
+    drone.SetRotorInput(ROTOR_REAR_LEFT, rearLeftInput, dt);
+    drone.SetRotorInput(ROTOR_REAR_RIGHT, rearRightInput, dt);
 
     drone.Update(dt);
     UpdateCamera(dt);
@@ -316,7 +388,7 @@ void Game::DrawMenu() const {
 
     // Controls
     const char* lines[] = {
-        "Hold Q W A S to spin each propeller independently.",
+        "Hold Q W A S or press the four screen corners to spin each propeller.",
         "Longer hold = more thrust. Release = thrust drops fast.",
         "",
         "Fly from the white spawn pad to the orange landing pad.",
@@ -350,10 +422,20 @@ void Game::DrawMenu() const {
 }
 
 void Game::DrawPlaying() const {
-    drone.DrawHUDBars(screenWidth, screenHeight);
+    int w = GetScreenWidth();
+    int h = GetScreenHeight();
 
-    // Stats (top-right)
-    int sx = screenWidth - 210, sy = 16;
+    if (touchGuideAlpha > 0.01f) {
+        DrawRotorTouchZone(ROTOR_FRONT_LEFT, drone, w, h, "Q", touchGuideAlpha);
+        DrawRotorTouchZone(ROTOR_FRONT_RIGHT, drone, w, h, "W", touchGuideAlpha);
+        DrawRotorTouchZone(ROTOR_REAR_LEFT, drone, w, h, "A", touchGuideAlpha);
+        DrawRotorTouchZone(ROTOR_REAR_RIGHT, drone, w, h, "S", touchGuideAlpha);
+    }
+
+    drone.DrawHUDBars(w, h);
+
+    // Stats (top-center, clear of the corner touch zones)
+    int sx = (w - 210) / 2, sy = 16;
     DrawText(TextFormat("Alt:      %.1f m",  drone.GetAltitude()),              sx, sy,      20, WHITE);
     DrawText(TextFormat("Speed:  %.1f m/s",  Vector3Length(drone.velocity)),    sx, sy + 26, 20, WHITE);
     DrawText(TextFormat("Progress: %.0f%%",
