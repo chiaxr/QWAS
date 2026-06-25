@@ -32,6 +32,9 @@ struct Game {
     int        settingsSelectedIdx;
     float      touchGuideAlpha;  // fades after the first motor input
     bool       touchGuideDismissed;
+    bool       tapWasDown;
+    bool       tapCandidate;
+    Vector2    tapStart;
 
     void Init();
     void Reset();
@@ -55,4 +58,5 @@ private:
     void CheckCollisions();
     void DrawWorld() const;
     void DrawOverlay() const;
+    bool ConsumeCompletedTap();
 };

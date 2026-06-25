@@ -4,6 +4,7 @@
 
 namespace {
 constexpr float TOUCH_GUIDE_FADE_SPEED = 1.8f;
+constexpr float TAP_MAX_MOVE = 28.0f;
 
 Rectangle GetRotorTouchZone(RotorID id, int screenW, int screenH) {
     float zoneW = screenW * 0.5f;
@@ -36,6 +37,17 @@ bool IsRotorTouchDown(RotorID id, int screenW, int screenH) {
     }
 
     return false;
+}
+
+bool IsPrimaryPointerDown() {
+    return IsMouseButtonDown(MOUSE_BUTTON_LEFT) || GetTouchPointCount() > 0;
+}
+
+Vector2 GetPrimaryPointerPosition() {
+    if (GetTouchPointCount() > 0)
+        return GetTouchPosition(0);
+
+    return GetMousePosition();
 }
 
 void DrawRotorTouchZone(RotorID id, const Drone& drone, int screenW, int screenH, const char* label, float alpha) {
@@ -85,6 +97,9 @@ void Game::Init() {
     settingsSelectedIdx = 0;
     touchGuideAlpha = 1.0f;
     touchGuideDismissed = false;
+    tapWasDown = false;
+    tapCandidate = false;
+    tapStart = {0, 0};
 }
 
 void Game::Reset() {
@@ -93,6 +108,9 @@ void Game::Reset() {
     winTimer  = 0;
     touchGuideAlpha = 1.0f;
     touchGuideDismissed = false;
+    tapWasDown = false;
+    tapCandidate = false;
+    tapStart = {0, 0};
 
     camera.position = {0, 4, 8};
     camera.target   = {0, DRONE_REST_Y, 0};
@@ -116,7 +134,7 @@ void Game::Update(float dt) {
 
 void Game::UpdateMenu(float dt) {
     (void)dt;
-    if (IsKeyPressed(KEY_SPACE)) {
+    if (IsKeyPressed(KEY_SPACE) || ConsumeCompletedTap()) {
         state = GameState::PLAYING;
     }
     if (IsKeyPressed(KEY_TAB)) {
@@ -203,7 +221,7 @@ void Game::UpdatePlaying(float dt) {
 
 void Game::UpdateDead(float dt) {
     deadTimer -= dt;
-    if (deadTimer <= 0.0f && IsKeyPressed(KEY_R)) {
+    if (deadTimer <= 0.0f && (IsKeyPressed(KEY_R) || ConsumeCompletedTap())) {
         Reset();
         state = GameState::PLAYING;
     }
@@ -211,10 +229,34 @@ void Game::UpdateDead(float dt) {
 
 void Game::UpdateWin(float dt) {
     winTimer += dt;
-    if (IsKeyPressed(KEY_R)) {
+    if (IsKeyPressed(KEY_R) || ConsumeCompletedTap()) {
         Reset();
         state = GameState::PLAYING;
     }
+}
+
+bool Game::ConsumeCompletedTap() {
+    bool pointerDown = IsPrimaryPointerDown();
+    bool completedTap = false;
+
+    if (pointerDown) {
+        Vector2 pointerPosition = GetPrimaryPointerPosition();
+        if (!tapWasDown) {
+            tapCandidate = true;
+            tapStart = pointerPosition;
+        } else if (tapCandidate && Vector2Distance(tapStart, pointerPosition) > TAP_MAX_MOVE) {
+            tapCandidate = false;
+        }
+    } else if (tapWasDown && tapCandidate) {
+        completedTap = true;
+        tapCandidate = false;
+    }
+
+    tapWasDown = pointerDown;
+    if (!pointerDown)
+        tapCandidate = false;
+
+    return completedTap || IsGestureDetected(GESTURE_TAP);
 }
 
 void Game::UpdateCamera(float dt) {
@@ -379,7 +421,7 @@ static void DrawCenteredText(const char* text, int y, int fontSize, Color color)
 
 void Game::DrawMenu() const {
     // Semi-transparent backdrop in centre
-    int bw = 700, bh = 480;
+    int bw = 760, bh = 540;
     int bx = (screenWidth - bw) / 2, by = (screenHeight - bh) / 2 - 30;
     DrawRectangle(bx, by, bw, bh, {0, 0, 0, 160});
 
@@ -388,20 +430,22 @@ void Game::DrawMenu() const {
 
     // Controls
     const char* lines[] = {
-        "Hold Q W A S or press the four screen corners to spin each propeller.",
+        "Keyboard: hold Q W A S to spin each propeller.",
+        "Touch/click: hold a screen quadrant for the matching motor.",
+        "Top: Q W    Bottom: A S",
         "Longer hold = more thrust. Release = thrust drops fast.",
         "",
         "Fly from the white spawn pad to the orange landing pad.",
         "Land gently (low speed, nearly level) to win.",
         "",
-        "SPACE  -  Start",
-        "R      -  Restart at any time",
-        "TAB    -  Physics Settings"
+        "SPACE or tap  -  Start",
+        "R or tap      -  Restart after crash/win",
+        "TAB           -  Physics Settings (keyboard only)"
     };
     int lineY = by + 150;
     for (const char* line : lines) {
         DrawCenteredText(line, lineY, 18, WHITE);
-        lineY += 28;
+        lineY += 24;
     }
 
     // Motor colour legend in keyboard layout
@@ -411,7 +455,7 @@ void Game::DrawMenu() const {
         {"A", GREEN,  "Rear-Left"},
         {"S", YELLOW, "Rear-Right"}
     };
-    int lx = bx + 60, ly = by + bh - 90;
+    int lx = bx + 60, ly = by + bh - 86;
     DrawText("Motors:", lx, ly, 18, LIGHTGRAY);
     for (int i = 0; i < 4; i++) {
         int ix = lx + (i % 2) * 290;
@@ -458,7 +502,7 @@ void Game::DrawDead() const {
 
         float progress = fminf(drone.distanceTraveled / fabsf(PAD_WORLD_Z) * 100.0f, 100.0f);
         DrawCenteredText(TextFormat("Progress: %.0f%%", progress), screenHeight / 2, 30, WHITE);
-        DrawCenteredText("Press R to retry", screenHeight / 2 + 50, 24, LIGHTGRAY);
+        DrawCenteredText("Press R or tap to retry", screenHeight / 2 + 50, 24, LIGHTGRAY);
     }
 }
 
@@ -483,7 +527,7 @@ void Game::DrawWin() const {
     DrawCenteredText("LANDED!",              screenHeight / 2 - 100, titleSize, GREEN);
     DrawCenteredText("Progress:  100%",      screenHeight / 2 - 10,  30, WHITE);
     DrawCenteredText("Perfect landing!",     screenHeight / 2 + 30,  24, GOLD);
-    DrawCenteredText("Press R to fly again", screenHeight / 2 + 70,  24, LIGHTGRAY);
+    DrawCenteredText("Press R or tap to fly again", screenHeight / 2 + 70,  24, LIGHTGRAY);
 
     drone.DrawHUDBars(screenWidth, screenHeight);
 }
@@ -548,6 +592,6 @@ void Game::DrawSettings() const {
         DrawText(TextFormat("%.3g %s", *e.val, e.unit), valueX, ry + 8, 17, textCol);
     }
 
-    DrawCenteredText("Up/Down: Select   Left/Right: Adjust   R: Reset defaults   Backspace: Back",
+    DrawCenteredText("Keyboard only: Up/Down Select   Left/Right Adjust   R Reset defaults   Backspace Back",
                      by + bh - 26, 16, {180, 180, 180, 255});
 }

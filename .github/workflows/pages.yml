@@ -1,0 +1,80 @@
+name: pages
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: pages-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup Emscripten
+        uses: emscripten-core/setup-emsdk@v16
+        with:
+          version: 4.0.23
+
+      - name: Configure web build
+        run: |
+          emcmake cmake -S . -B build-web \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DQWAS_BUILD_NATIVE=OFF \
+            -DQWAS_BUILD_WEB=ON
+
+      - name: Build web target
+        run: cmake --build build-web --target qwas_web --config Release
+
+      - name: Verify web artifacts
+        run: |
+          test -s build-web/dist/index.html
+          test -s build-web/dist/index.js
+          test -s build-web/dist/index.wasm
+
+      - name: Reject default shell branding
+        run: |
+          if grep -Eiq 'emscripten[ _-]?logo|Powered by Emscripten|emscripten.org|spinner' build-web/dist/index.html; then
+            echo "Generated index.html contains default Emscripten branding or UI."
+            exit 1
+          fi
+
+      - name: Add Pages metadata
+        run: touch build-web/dist/.nojekyll
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v5
+        with:
+          path: build-web/dist
+
+  deploy:
+    if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main')
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+
+    steps:
+      - name: Configure Pages
+        uses: actions/configure-pages@v6
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v5

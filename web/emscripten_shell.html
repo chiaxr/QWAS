@@ -1,0 +1,249 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+    <title>QWAS</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        --safe-top: env(safe-area-inset-top, 0px);
+        --safe-right: env(safe-area-inset-right, 0px);
+        --safe-bottom: env(safe-area-inset-bottom, 0px);
+        --safe-left: env(safe-area-inset-left, 0px);
+        --play-width: calc(100vw - var(--safe-left) - var(--safe-right));
+        --play-height: calc(100vh - var(--safe-top) - var(--safe-bottom));
+      }
+
+      html,
+      body {
+        margin: 0;
+        width: 100%;
+        height: 100%;
+        overflow: hidden;
+        overscroll-behavior: none;
+        background: #000;
+        color: #f8fafc;
+        font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        -webkit-text-size-adjust: 100%;
+        -webkit-touch-callout: none;
+        -webkit-user-select: none;
+        user-select: none;
+        touch-action: none;
+      }
+
+      body {
+        position: fixed;
+        inset: 0;
+      }
+
+      #stage {
+        position: fixed;
+        inset: var(--safe-top) var(--safe-right) var(--safe-bottom) var(--safe-left);
+        display: grid;
+        place-items: center;
+        overflow: hidden;
+        background: #000;
+      }
+
+      #canvas {
+        display: block;
+        width: min(var(--play-width), calc(var(--play-height) * 16 / 9));
+        height: min(var(--play-height), calc(var(--play-width) * 9 / 16));
+        aspect-ratio: 16 / 9;
+        max-width: 100%;
+        max-height: 100%;
+        border: 0;
+        outline: 0;
+        background: #000;
+        touch-action: none;
+      }
+
+      #loading {
+        position: fixed;
+        left: 50%;
+        bottom: max(24px, calc(var(--safe-bottom) + 18px));
+        transform: translateX(-50%);
+        z-index: 4;
+        padding: 8px 12px;
+        border: 1px solid rgba(255, 255, 255, 0.18);
+        background: rgba(0, 0, 0, 0.68);
+        font-size: 13px;
+        letter-spacing: 0;
+      }
+
+      #error {
+        position: fixed;
+        left: max(16px, var(--safe-left));
+        right: max(16px, var(--safe-right));
+        bottom: max(16px, var(--safe-bottom));
+        z-index: 5;
+        display: none;
+        padding: 10px 12px;
+        border: 1px solid rgba(248, 113, 113, 0.6);
+        background: rgba(69, 10, 10, 0.92);
+        color: #fecaca;
+        font-size: 13px;
+      }
+
+      #rotateOverlay {
+        position: fixed;
+        inset: 0;
+        z-index: 10;
+        display: none;
+        place-items: center;
+        padding: 24px;
+        background: #000;
+        text-align: center;
+      }
+
+      #rotateOverlayContent {
+        max-width: 320px;
+      }
+
+      #rotateOverlayTitle {
+        margin: 0 0 8px;
+        font-size: 24px;
+        font-weight: 700;
+      }
+
+      #rotateOverlayText {
+        margin: 0;
+        color: #cbd5e1;
+        font-size: 15px;
+        line-height: 1.45;
+      }
+
+      body.qwas-portrait #stage {
+        visibility: hidden;
+        pointer-events: none;
+      }
+
+      body.qwas-portrait #loading,
+      body.qwas-portrait #error {
+        display: none !important;
+      }
+
+      body.qwas-portrait #rotateOverlay {
+        display: grid;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="stage">
+      <canvas id="canvas" width="1280" height="720" tabindex="-1" aria-label="QWAS game canvas"></canvas>
+    </div>
+
+    <div id="loading">QWAS loading...</div>
+    <div id="error" role="alert"></div>
+    <div id="rotateOverlay" aria-live="polite">
+      <div id="rotateOverlayContent">
+        <p id="rotateOverlayTitle">Rotate to landscape</p>
+        <p id="rotateOverlayText">QWAS pauses in portrait. Turn your device or widen the window to resume.</p>
+      </div>
+    </div>
+
+    <script>
+      var Module = (function () {
+        var canvas = document.getElementById('canvas');
+        var loading = document.getElementById('loading');
+        var errorBox = document.getElementById('error');
+        var immersiveRequested = false;
+
+        function isPortrait() {
+          return window.innerHeight > window.innerWidth;
+        }
+
+        function updateOrientationGate() {
+          document.body.classList.toggle('qwas-portrait', isPortrait());
+        }
+
+        function showError(message) {
+          if (!errorBox) return;
+          errorBox.textContent = String(message || 'QWAS could not start.');
+          errorBox.style.display = 'block';
+        }
+
+        async function requestImmersive(event) {
+          if (immersiveRequested || (event && event.isTrusted === false)) return;
+          immersiveRequested = true;
+
+          try {
+            if (!document.fullscreenElement && document.documentElement.requestFullscreen) {
+              await document.documentElement.requestFullscreen({ navigationUI: 'hide' });
+            }
+          } catch (err) {
+            // Fullscreen is best-effort on mobile browsers.
+          }
+
+          try {
+            if (screen.orientation && screen.orientation.lock) {
+              await screen.orientation.lock('landscape');
+            }
+          } catch (err) {
+            // Orientation lock is not consistently supported.
+          }
+
+          try {
+            canvas.focus({ preventScroll: true });
+          } catch (err) {
+            canvas.focus();
+          }
+        }
+
+        window.addEventListener('resize', updateOrientationGate);
+        window.addEventListener('orientationchange', updateOrientationGate);
+        window.addEventListener('error', function (event) {
+          showError(event.message || 'Unhandled runtime error.');
+        });
+        window.addEventListener('unhandledrejection', function (event) {
+          showError((event.reason && event.reason.message) || event.reason || 'Unhandled runtime error.');
+        });
+
+        document.addEventListener('contextmenu', function (event) {
+          event.preventDefault();
+        });
+        document.addEventListener('touchmove', function (event) {
+          event.preventDefault();
+        }, { passive: false });
+        document.addEventListener('gesturestart', function (event) {
+          event.preventDefault();
+        }, { passive: false });
+
+        ['pointerup', 'touchend', 'click', 'keydown'].forEach(function (eventName) {
+          window.addEventListener(eventName, requestImmersive, { passive: true });
+        });
+
+        updateOrientationGate();
+
+        return {
+          canvas: canvas,
+          setStatus: function (text) {
+            if (!loading) return;
+            if (text) {
+              loading.hidden = false;
+              loading.textContent = text;
+            } else {
+              loading.hidden = true;
+            }
+          },
+          printErr: function (text) {
+            console.error(text);
+            showError(text);
+          },
+          onRuntimeInitialized: function () {
+            if (loading) loading.hidden = true;
+            try {
+              canvas.focus({ preventScroll: true });
+            } catch (err) {
+              canvas.focus();
+            }
+          },
+          __qwasIsPortrait: isPortrait
+        };
+      }());
+    </script>
+    {{{ SCRIPT }}}
+  </body>
+</html>
