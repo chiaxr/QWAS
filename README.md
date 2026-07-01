@@ -22,7 +22,7 @@ A  S    rear motors
 | A / bottom-left quadrant | Rear-left | Green |
 | S / bottom-right quadrant | Rear-right | Yellow |
 
-Goal: fly from the green starting pad to the orange landing pad 25 meters ahead. Land gently with low speed and low tilt to win.
+Goal: fly from the green starting pad to the orange landing pad 25 meters ahead. Land gently with low speed and low tilt for a perfect win.
 
 Crash condition: any rotor hits the ground outside the starting or landing pad.
 
@@ -30,14 +30,12 @@ Crash condition: any rotor hits the ground outside the starting or landing pad.
 
 | Input | Action |
 | --- | --- |
-| Q / W / A / S | Hold to increase motor thrust; release to cut it |
-| Touch/click quadrant | Hold a screen quadrant to control the matching motor |
-| Space | Start from the menu |
-| Tap/click | Start from the menu, retry after a crash delay, or restart after a win |
-| R | Restart after crash or win |
-| Tab | Physics settings |
-| Arrow keys | Adjust physics settings |
-| Backspace | Leave physics settings |
+| Q / W / A / S <br> Touch quadrant | Hold to increase motor thrust; release to cut it |
+| Up / Down | Navigate the menu, or adjust the selected physics setting when in Settings |
+| Left / Right | Adjust the selected physics setting in Settings, or choose Retry/Menu on the crash/win screens |
+| Enter / Space <br> Mouse click / Tap | Select the highlighted menu, settings-exit, or crash/win-screen option |
+| R | Reset physics settings to defaults (in Settings), or restart (during flight or on crash/win) |
+| Backspace / Esc | Back out to the main menu |
 | Esc / window close | Quit native desktop build |
 
 The web version is landscape-only. In portrait orientation the canvas is hidden, the game is paused, and a rotate prompt is shown until the viewport returns to landscape.
