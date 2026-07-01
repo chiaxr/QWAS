@@ -90,6 +90,31 @@ const char* GetCrashHint(CrashReason reason) {
 
     return "";
 }
+static Rectangle GetEndScreenButtonRect(int idx, int screenW, int btnTopY) {
+    const int btnW = 280, btnH = 52, gap = 24;
+    int bx = (screenW - (btnW * 2 + gap)) / 2 + idx * (btnW + gap);
+    return {(float)bx, (float)btnTopY, (float)btnW, (float)btnH};
+}
+
+static Rectangle GetMenuButtonRect(int idx, int screenW, int screenH) {
+    const int btnW = 400, btnH = 52;
+    int btnX = (screenW - btnW) / 2;
+    int btnY = (int)(screenH * 0.43f) + idx * 66;
+    return {(float)btnX, (float)btnY, (float)btnW, (float)btnH};
+}
+
+static void DrawMenuButton(const char* label, Rectangle rect, bool selected) {
+    Color bg     = selected ? Color{45, 75, 45, 230} : Color{15, 15, 15, 210};
+    Color border = selected ? Color{100, 200, 100, 255} : Color{55, 55, 55, 200};
+    DrawRectangleRec(rect, bg);
+    DrawRectangleLinesEx(rect, 2.0f, border);
+    const int fs = 26;
+    int tw = MeasureText(label, fs);
+    DrawText(label,
+             (int)(rect.x + (rect.width  - tw) * 0.5f),
+             (int)(rect.y + (rect.height - fs) * 0.5f),
+             fs, selected ? WHITE : Color{200, 200, 200, 255});
+}
 }  // namespace
 
 // ---------------------------------------------------------------------------
@@ -120,6 +145,8 @@ void Game::Init() {
     deadTimer = 0;
     winTimer  = 0;
     settingsSelectedIdx = 0;
+    menuSelectedIdx = 0;
+    endScreenSelectedIdx = 0;
     touchGuideAlpha = 1.0f;
     touchGuideDismissed = false;
     tapWasDown = false;
@@ -150,28 +177,74 @@ void Game::Reset() {
 
 void Game::Update(float dt) {
     switch (state) {
-        case GameState::MENU:     UpdateMenu(dt);     break;
-        case GameState::PLAYING:  UpdatePlaying(dt);  break;
-        case GameState::DEAD:     UpdateDead(dt);     break;
-        case GameState::WIN:      UpdateWin(dt);      break;
-        case GameState::SETTINGS: UpdateSettings(dt); break;
+        case GameState::MENU:           UpdateMenu();         break;
+        case GameState::SETTINGS:       UpdateSettings();     break;
+        case GameState::INSTRUCTIONS:   UpdateInstructions(); break;
+        case GameState::PLAYING:        UpdatePlaying(dt);      break;
+        case GameState::DEAD:           UpdateDead(dt);         break;
+        case GameState::WIN:            UpdateWin(dt);          break;
     }
 }
 
-void Game::UpdateMenu(float dt) {
-    (void)dt;
-    if (IsKeyPressed(KEY_SPACE) || ConsumeCompletedTap()) {
-        state = GameState::PLAYING;
+void Game::UpdateMenu() {
+    constexpr int MENU_COUNT = 3;
+    int sw = GetScreenWidth(), sh = GetScreenHeight();
+
+    // Keyboard navigation
+    if (IsKeyPressed(KEY_UP))   menuSelectedIdx = (menuSelectedIdx - 1 + MENU_COUNT) % MENU_COUNT;
+    if (IsKeyPressed(KEY_DOWN)) menuSelectedIdx = (menuSelectedIdx + 1) % MENU_COUNT;
+
+    // Mouse hover → update selection
+    Vector2 mp = GetMousePosition();
+    for (int i = 0; i < MENU_COUNT; i++) {
+        if (CheckCollisionPointRec(mp, GetMenuButtonRect(i, sw, sh)))
+            menuSelectedIdx = i;
     }
-    if (IsKeyPressed(KEY_TAB)) {
-        settingsSelectedIdx = 0;
-        state = GameState::SETTINGS;
+    // Touch hover → update selection
+    for (int t = 0; t < GetTouchPointCount(); t++) {
+        Vector2 tp = GetTouchPosition(t);
+        for (int i = 0; i < MENU_COUNT; i++) {
+            if (CheckCollisionPointRec(tp, GetMenuButtonRect(i, sw, sh)))
+                menuSelectedIdx = i;
+        }
+    }
+
+    // Activate via keyboard Enter / Space
+    if (IsKeyPressed(KEY_ENTER) || IsKeyPressed(KEY_SPACE)) {
+        ActivateMenuButton(menuSelectedIdx);
+        return;
+    }
+
+    // Activate via mouse click
+    if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
+        for (int i = 0; i < MENU_COUNT; i++) {
+            if (CheckCollisionPointRec(mp, GetMenuButtonRect(i, sw, sh))) {
+                ActivateMenuButton(i);
+                return;
+            }
+        }
+    }
+
+    // Activate via touch tap
+    if (ConsumeCompletedTap()) {
+        for (int i = 0; i < MENU_COUNT; i++) {
+            if (CheckCollisionPointRec(tapStart, GetMenuButtonRect(i, sw, sh))) {
+                ActivateMenuButton(i);
+                return;
+            }
+        }
     }
 }
 
-void Game::UpdateSettings(float dt) {
-    (void)dt;
+void Game::ActivateMenuButton(int idx) {
+    switch (idx) {
+        case 0: Reset(); endScreenSelectedIdx = 0; state = GameState::PLAYING; break;
+        case 1: settingsSelectedIdx = 0; state = GameState::SETTINGS; break;
+        case 2: state = GameState::INSTRUCTIONS; break;
+    }
+}
 
+void Game::UpdateSettings() {
     struct Entry { float* val; float minV; float maxV; float step; };
     Entry entries[] = {
         { &DRONE_MASS,       0.1f,  5.0f,  0.05f  },
@@ -189,7 +262,7 @@ void Game::UpdateSettings(float dt) {
     };
     constexpr int COUNT = 12;
 
-    if (IsKeyPressed(KEY_BACKSPACE)) { state = GameState::MENU; return; }
+    if (IsKeyPressed(KEY_BACKSPACE) || IsKeyPressed(KEY_ESCAPE)) { menuSelectedIdx = 1; state = GameState::MENU; return; }
 
     if (IsKeyPressed(KEY_R)) {
         DRONE_MASS       = DRONE_MASS_DEFAULT;
@@ -215,7 +288,20 @@ void Game::UpdateSettings(float dt) {
     if (IsKeyDown(KEY_RIGHT)) *e.val = fminf(e.maxV, *e.val + e.step);
 }
 
+void Game::UpdateInstructions() {
+    if (IsKeyPressed(KEY_BACKSPACE) || IsKeyPressed(KEY_ESCAPE)) {
+        menuSelectedIdx = 2;
+        state = GameState::MENU;
+        return;
+    }
+    if (ConsumeCompletedTap()) {
+        menuSelectedIdx = 2;
+        state = GameState::MENU;
+    }
+}
+
 void Game::UpdatePlaying(float dt) {
+    if (IsKeyPressed(KEY_BACKSPACE) || IsKeyPressed(KEY_ESCAPE)) { state = GameState::MENU; return; }
     if (IsKeyPressed(KEY_R)) { Reset(); return; }
 
     int w = GetScreenWidth();
@@ -247,17 +333,89 @@ void Game::UpdatePlaying(float dt) {
 
 void Game::UpdateDead(float dt) {
     deadTimer -= dt;
-    if (deadTimer <= 0.0f && (IsKeyPressed(KEY_R) || ConsumeCompletedTap())) {
-        Reset();
-        state = GameState::PLAYING;
+
+    if (IsKeyPressed(KEY_BACKSPACE) || IsKeyPressed(KEY_ESCAPE)) { state = GameState::MENU; return; }
+
+    if (deadTimer > 0.0f) return;
+
+    int sw = GetScreenWidth(), sh = GetScreenHeight();
+    int btnY = sh / 2 + 90;
+
+    // Keyboard navigation between Retry (0) and Menu (1)
+    if (IsKeyPressed(KEY_LEFT))  endScreenSelectedIdx = 0;
+    if (IsKeyPressed(KEY_RIGHT)) endScreenSelectedIdx = 1;
+
+    // Hover: mouse
+    Vector2 mp = GetMousePosition();
+    for (int i = 0; i < 2; i++)
+        if (CheckCollisionPointRec(mp, GetEndScreenButtonRect(i, sw, btnY)))
+            endScreenSelectedIdx = i;
+    // Hover: touch
+    for (int t = 0; t < GetTouchPointCount(); t++) {
+        Vector2 tp = GetTouchPosition(t);
+        for (int i = 0; i < 2; i++)
+            if (CheckCollisionPointRec(tp, GetEndScreenButtonRect(i, sw, btnY)))
+                endScreenSelectedIdx = i;
+    }
+
+    auto activateEnd = [&](int idx) {
+        if (idx == 0) { Reset(); state = GameState::PLAYING; }
+        else          { state = GameState::MENU; }
+    };
+
+    if (IsKeyPressed(KEY_R))                                    { activateEnd(0); return; }
+    if (IsKeyPressed(KEY_ENTER) || IsKeyPressed(KEY_SPACE))     { activateEnd(endScreenSelectedIdx); return; }
+
+    if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
+        for (int i = 0; i < 2; i++)
+            if (CheckCollisionPointRec(mp, GetEndScreenButtonRect(i, sw, btnY))) { activateEnd(i); return; }
+    }
+    if (ConsumeCompletedTap()) {
+        for (int i = 0; i < 2; i++)
+            if (CheckCollisionPointRec(tapStart, GetEndScreenButtonRect(i, sw, btnY))) { activateEnd(i); return; }
     }
 }
 
 void Game::UpdateWin(float dt) {
     winTimer += dt;
-    if (IsKeyPressed(KEY_R) || ConsumeCompletedTap()) {
-        Reset();
-        state = GameState::PLAYING;
+
+    if (IsKeyPressed(KEY_BACKSPACE) || IsKeyPressed(KEY_ESCAPE)) { state = GameState::MENU; return; }
+
+    int sw = GetScreenWidth(), sh = GetScreenHeight();
+    int btnY = sh / 2 + 90;
+
+    // Keyboard navigation between Retry (0) and Menu (1)
+    if (IsKeyPressed(KEY_LEFT))  endScreenSelectedIdx = 0;
+    if (IsKeyPressed(KEY_RIGHT)) endScreenSelectedIdx = 1;
+
+    // Hover: mouse
+    Vector2 mp = GetMousePosition();
+    for (int i = 0; i < 2; i++)
+        if (CheckCollisionPointRec(mp, GetEndScreenButtonRect(i, sw, btnY)))
+            endScreenSelectedIdx = i;
+    // Hover: touch
+    for (int t = 0; t < GetTouchPointCount(); t++) {
+        Vector2 tp = GetTouchPosition(t);
+        for (int i = 0; i < 2; i++)
+            if (CheckCollisionPointRec(tp, GetEndScreenButtonRect(i, sw, btnY)))
+                endScreenSelectedIdx = i;
+    }
+
+    auto activateEnd = [&](int idx) {
+        if (idx == 0) { Reset(); state = GameState::PLAYING; }
+        else          { state = GameState::MENU; }
+    };
+
+    if (IsKeyPressed(KEY_R))                                    { activateEnd(0); return; }
+    if (IsKeyPressed(KEY_ENTER) || IsKeyPressed(KEY_SPACE))     { activateEnd(endScreenSelectedIdx); return; }
+
+    if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
+        for (int i = 0; i < 2; i++)
+            if (CheckCollisionPointRec(mp, GetEndScreenButtonRect(i, sw, btnY))) { activateEnd(i); return; }
+    }
+    if (ConsumeCompletedTap()) {
+        for (int i = 0; i < 2; i++)
+            if (CheckCollisionPointRec(tapStart, GetEndScreenButtonRect(i, sw, btnY))) { activateEnd(i); return; }
     }
 }
 
@@ -405,7 +563,8 @@ void Game::DrawOverlay() const {
         case GameState::PLAYING:  DrawPlaying();  break;
         case GameState::DEAD:     DrawDead();     break;
         case GameState::WIN:      DrawWin();      break;
-        case GameState::SETTINGS: DrawSettings(); break;
+        case GameState::SETTINGS:      DrawSettings();      break;
+        case GameState::INSTRUCTIONS:  DrawInstructions();  break;
     }
 }
 
@@ -457,49 +616,33 @@ static void DrawCenteredText(const char* text, int y, int fontSize, Color color)
 }
 
 void Game::DrawMenu() const {
-    // Semi-transparent backdrop in centre
-    int bw = 760, bh = 540;
-    int bx = (screenWidth - bw) / 2, by = (screenHeight - bh) / 2 - 30;
-    DrawRectangle(bx, by, bw, bh, {0, 0, 0, 160});
+    int sw = GetScreenWidth(), sh = GetScreenHeight();
 
-    DrawCenteredText("QWAS", by + 20, 72, WHITE);
-    DrawCenteredText("Quadrotor With Awkward Strokes", by + 100, 22, LIGHTGRAY);
+    // Subtle darkening so world is still visible as backdrop
+    DrawRectangle(0, 0, sw, sh, {0, 0, 0, 110});
 
-    // Controls
-    const char* lines[] = {
-        "Keyboard: hold Q W A S to spin each propeller.",
-        "Touch/click: hold a screen quadrant for the matching motor.",
-        "Top: Q W    Bottom: A S",
-        "Longer hold = more thrust. Release = thrust drops fast.",
-        "",
-        "Fly from the white spawn pad to the orange landing pad.",
-        "Land gently (low speed, nearly level) to win.",
-        "",
-        "SPACE or tap  -  Start",
-        "R or tap      -  Restart after crash/win",
-        "TAB           -  Physics Settings (keyboard only)"
-    };
-    int lineY = by + 150;
-    for (const char* line : lines) {
-        DrawCenteredText(line, lineY, 18, WHITE);
-        lineY += 24;
-    }
+    // Title with drop shadow
+    const char* title = "QWAS";
+    const int titleSize = 104;
+    int tw = MeasureText(title, titleSize);
+    int tx = (sw - tw) / 2;
+    int ty = (int)(sh * 0.12f);
+    DrawText(title, tx + 4, ty + 4, titleSize, {0, 0, 0, 150});
+    DrawText(title, tx, ty, titleSize, WHITE);
 
-    // Motor colour legend in keyboard layout
-    struct { const char* key; Color col; const char* desc; } legend[4] = {
-        {"Q", RED,    "Front-Left"},
-        {"W", BLUE,   "Front-Right"},
-        {"A", GREEN,  "Rear-Left"},
-        {"S", YELLOW, "Rear-Right"}
-    };
-    int lx = bx + 60, ly = by + bh - 86;
-    DrawText("Motors:", lx, ly, 18, LIGHTGRAY);
-    for (int i = 0; i < 4; i++) {
-        int ix = lx + (i % 2) * 290;
-        int iy = ly + 26 + (i / 2) * 24;
-        DrawRectangle(ix, iy, 16, 16, legend[i].col);
-        DrawText(TextFormat("%s = %s", legend[i].key, legend[i].desc), ix + 22, iy, 17, WHITE);
-    }
+    // Subtitle
+    const char* sub = "Quadrotor With Awkward Strokes";
+    const int subSize = 32;
+    int stw = MeasureText(sub, subSize);
+    DrawText(sub, (sw - stw) / 2, ty + titleSize + 12, subSize, {180, 180, 180, 255});
+
+    // Menu buttons
+    const char* labels[] = {"START", "SETTINGS", "INSTRUCTIONS"};
+    for (int i = 0; i < 3; i++)
+        DrawMenuButton(labels[i], GetMenuButtonRect(i, sw, sh), i == menuSelectedIdx);
+
+    DrawCenteredText("Arrow keys to navigate  |  Enter or click to select",
+                     sh - 28, 14, {100, 100, 100, 255});
 }
 
 void Game::DrawPlaying() const {
@@ -530,27 +673,34 @@ void Game::DrawPlaying() const {
 }
 
 void Game::DrawDead() const {
-    drone.DrawHUDBars(screenWidth, screenHeight);
+    int sw = GetScreenWidth(), sh = GetScreenHeight();
+    drone.DrawHUDBars(sw, sh);
 
     if (deadTimer <= 0.0f) {
-        DrawRectangle(0, 0, screenWidth, screenHeight, {0, 0, 0, 120});
+        DrawRectangle(0, 0, sw, sh, {0, 0, 0, 120});
 
-        DrawCenteredText(GetCrashTitle(crashReason), screenHeight / 2 - 100, 60, RED);
-        DrawCenteredText(GetCrashHint(crashReason), screenHeight / 2 - 38, 24, LIGHTGRAY);
+        DrawCenteredText(GetCrashTitle(crashReason), sh / 2 - 100, 60, RED);
+        DrawCenteredText(GetCrashHint(crashReason),  sh / 2 - 38,  24, LIGHTGRAY);
 
         float progress = fminf(drone.distanceTraveled / fabsf(PAD_WORLD_Z) * 100.0f, 100.0f);
-        DrawCenteredText(TextFormat("Progress: %.0f%%", progress), screenHeight / 2, 30, WHITE);
-        DrawCenteredText("Press R or tap to retry", screenHeight / 2 + 50, 24, LIGHTGRAY);
+        DrawCenteredText(TextFormat("Progress: %.0f%%", progress), sh / 2, 30, WHITE);
+
+        int btnY = sh / 2 + 90;
+        DrawMenuButton("RETRY",           GetEndScreenButtonRect(0, sw, btnY), endScreenSelectedIdx == 0);
+        DrawMenuButton("RETURN TO MENU",  GetEndScreenButtonRect(1, sw, btnY), endScreenSelectedIdx == 1);
+        DrawCenteredText("Left/Right to navigate  |  Enter or click to select",
+                         btnY + 66, 14, {100, 100, 100, 255});
     }
 }
 
 void Game::DrawWin() const {
-    DrawRectangle(0, 0, screenWidth, screenHeight, {0, 60, 0, 150});
+    int sw = GetScreenWidth(), sh = GetScreenHeight();
+    DrawRectangle(0, 0, sw, sh, {0, 60, 0, 150});
 
     // Expanding celebration rings in motor colors, staggered 0.4s apart
     const Color ringColors[4] = {RED, BLUE, GREEN, YELLOW};
     const float period = 1.6f;
-    int cx = screenWidth / 2, cy = screenHeight / 2;
+    int cx = sw / 2, cy = sh / 2;
     for (int w = 0; w < 4; w++) {
         float t      = fmod(winTimer + w * (period / 4.0f), period);
         float radius = t * 420.0f;
@@ -562,12 +712,17 @@ void Game::DrawWin() const {
 
     // Pulsing title
     int titleSize = (int)(80 * (1.0f + 0.07f * sinf(winTimer * 5.0f)));
-    DrawCenteredText("LANDED!",              screenHeight / 2 - 100, titleSize, GREEN);
-    DrawCenteredText("Progress:  100%",      screenHeight / 2 - 10,  30, WHITE);
-    DrawCenteredText("Perfect landing!",     screenHeight / 2 + 30,  24, GOLD);
-    DrawCenteredText("Press R or tap to fly again", screenHeight / 2 + 70,  24, LIGHTGRAY);
+    DrawCenteredText("LANDED!",          sh / 2 - 100, titleSize, GREEN);
+    DrawCenteredText("Progress:  100%",  sh / 2 - 10,  30, WHITE);
+    DrawCenteredText("Perfect landing!", sh / 2 + 30,  24, GOLD);
 
-    drone.DrawHUDBars(screenWidth, screenHeight);
+    int btnY = sh / 2 + 90;
+    DrawMenuButton("FLY AGAIN",       GetEndScreenButtonRect(0, sw, btnY), endScreenSelectedIdx == 0);
+    DrawMenuButton("RETURN TO MENU",  GetEndScreenButtonRect(1, sw, btnY), endScreenSelectedIdx == 1);
+    DrawCenteredText("Left/Right to navigate  |  Enter or click to select",
+                     btnY + 66, 14, {100, 100, 100, 255});
+
+    drone.DrawHUDBars(sw, sh);
 }
 
 void Game::DrawSettings() const {
@@ -630,6 +785,67 @@ void Game::DrawSettings() const {
         DrawText(TextFormat("%.3g %s", *e.val, e.unit), valueX, ry + 8, 17, textCol);
     }
 
-    DrawCenteredText("Keyboard only: Up/Down Select   Left/Right Adjust   R Reset defaults   Backspace Back",
+    DrawCenteredText("Keyboard only: Up/Down Select   Left/Right Adjust   R Reset defaults   Backspace/Escape Back",
                      by + bh - 26, 16, {180, 180, 180, 255});
+}
+
+void Game::DrawInstructions() const {
+    int sw = GetScreenWidth(), sh = GetScreenHeight();
+    DrawRectangle(0, 0, sw, sh, {0, 0, 0, 150});
+
+    const int bw = 760, bh = 600;
+    const int bx = (sw - bw) / 2, by = (sh - bh) / 2;
+    DrawRectangle(bx, by, bw, bh, {10, 10, 10, 220});
+    DrawRectangleLinesEx({(float)bx, (float)by, (float)bw, (float)bh}, 2.0f, {70, 70, 70, 255});
+
+    DrawCenteredText("INSTRUCTIONS", by + 18, 30, WHITE);
+
+    int lx = bx + 40;
+    int y  = by + 65;
+
+    DrawText("Objective", lx, y, 20, YELLOW);
+    y += 26;
+    DrawText("Fly from the green start pad to the orange landing pad.", lx, y, 17, WHITE);
+    y += 20;
+    DrawText("Land gently (low speed, nearly level) to win.", lx, y, 17, WHITE);
+    y += 34;
+
+    DrawText("Keyboard Controls", lx, y, 20, YELLOW);
+    y += 26;
+    struct MotorKey { const char* key; Color col; const char* desc; };
+    const MotorKey motors[4] = {
+        {"Q", RED,    "Front-Left rotor"},
+        {"W", BLUE,   "Front-Right rotor"},
+        {"A", GREEN,  "Rear-Left rotor"},
+        {"S", YELLOW, "Rear-Right rotor"},
+    };
+    for (auto& m : motors) {
+        DrawRectangle(lx, y + 2, 14, 14, m.col);
+        DrawText(m.key,  lx + 18, y, 17, WHITE);
+        DrawText(m.desc, lx + 38, y, 17, LIGHTGRAY);
+        y += 22;
+    }
+    y += 4;
+    DrawText("R  -  Restart", lx, y, 17, WHITE);
+    y += 34;
+
+    DrawText("Touch / Click Controls", lx, y, 20, YELLOW);
+    y += 26;
+    DrawText("Hold a screen corner to spin the matching rotor:", lx, y, 17, WHITE);
+    y += 20;
+    DrawText("Top-Left = Q          Top-Right = W", lx, y, 17, WHITE);
+    y += 20;
+    DrawText("Bottom-Left = A       Bottom-Right = S", lx, y, 17, WHITE);
+    y += 34;
+
+    DrawText("Flight Tips", lx, y, 20, YELLOW);
+    y += 26;
+    DrawText("Longer hold = more thrust.  Release = thrust drops quickly.", lx, y, 17, WHITE);
+    y += 20;
+    DrawText("The drone tilts toward whichever rotors are spinning harder.", lx, y, 17, WHITE);
+    y += 20;
+    DrawText("Use Settings to adjust physics constants.", lx, y, 17, WHITE);
+
+    DrawCenteredText("Backspace / Escape or tap to return",
+                     by + bh - 26, 15, {120, 120, 120, 255});
 }

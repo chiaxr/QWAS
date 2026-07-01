@@ -11,7 +11,7 @@ constexpr float PAD_WORLD_Z   = -25.0f;  // landing pad distance (meters forward
 constexpr float PAD_TOP_Y    = 0.10f;   // top surface of any pad (cube: center 0.05, height 0.10)
 constexpr float DRONE_REST_Y = 0.13f;   // drone center when resting on a pad (PAD_TOP_Y + body half-height 0.03)
 
-enum class GameState { MENU, PLAYING, DEAD, WIN, SETTINGS };
+enum class GameState { MENU, SETTINGS, INSTRUCTIONS, PLAYING, DEAD, WIN };
 enum class CrashReason { NONE, ROTOR_STRIKE, GROUND_IMPACT, TOO_HIGH, OUT_OF_BOUNDS };
 
 struct LandingPad {
@@ -32,6 +32,8 @@ struct Game {
     float      winTimer;         // counts up from 0 on WIN entry (drives celebration)
     float      bestScore;        // best progress % this session
     int        settingsSelectedIdx;
+    int        menuSelectedIdx;
+    int        endScreenSelectedIdx;  // 0=Retry, 1=Menu on DEAD/WIN screens
     float      touchGuideAlpha;  // fades after the first motor input
     bool       touchGuideDismissed;
     bool       tapWasDown;
@@ -44,17 +46,20 @@ struct Game {
     void Draw() const;
 
 private:
-    void UpdateMenu(float dt);
+    void UpdateMenu();
+    void UpdateSettings();
+    void UpdateInstructions();
     void UpdatePlaying(float dt);
     void UpdateDead(float dt);
     void UpdateWin(float dt);
-    void UpdateSettings(float dt);
 
     void DrawMenu() const;
+    void DrawSettings() const;
+    void DrawInstructions() const;
     void DrawPlaying() const;
     void DrawDead() const;
     void DrawWin() const;
-    void DrawSettings() const;
+    void ActivateMenuButton(int idx);
 
     void UpdateCamera(float dt);
     void CheckCollisions();
