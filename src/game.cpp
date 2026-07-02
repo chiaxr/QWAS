@@ -115,6 +115,60 @@ static void DrawMenuButton(const char* label, Rectangle rect, bool selected) {
              (int)(rect.y + (rect.height - fs) * 0.5f),
              fs, selected ? WHITE : Color{200, 200, 200, 255});
 }
+
+struct SettingsEntry {
+    const char* label;
+    const char* unit;
+    float*      val;
+    float       minV;
+    float       maxV;
+    float       step;
+    float       defaultVal;
+};
+
+constexpr int SETTINGS_COUNT = 12;
+constexpr int SETTINGS_ROW_H = 34;
+
+const SettingsEntry kSettingsEntries[SETTINGS_COUNT] = {
+    { "Mass",             "kg",          &DRONE_MASS,       0.1f,  5.0f,  0.05f, DRONE_MASS_DEFAULT       },
+    { "Gravity",          "m/s\xb2",     &GRAVITY,          0.0f,  20.0f, 0.1f,  GRAVITY_DEFAULT          },
+    { "Max Thrust",       "N",           &MAX_THRUST,       0.5f,  10.0f, 0.1f,  MAX_THRUST_DEFAULT       },
+    { "Thrust Ramp Up",   "N/s",         &THRUST_RAMP_UP,   1.0f,  20.0f, 0.5f,  THRUST_RAMP_UP_DEFAULT   },
+    { "Thrust Ramp Down", "N/s",         &THRUST_RAMP_DOWN, 1.0f,  30.0f, 0.5f,  THRUST_RAMP_DOWN_DEFAULT },
+    { "Arm Length",       "m",           &ARM_LENGTH,       0.05f, 1.0f,  0.01f, ARM_LENGTH_DEFAULT       },
+    { "Inertia Pitch",    "kg\xb7m\xb2", &I_PITCH,          0.01f, 1.0f,  0.05f, I_PITCH_DEFAULT          },
+    { "Inertia Yaw",      "kg\xb7m\xb2", &I_YAW,            0.01f, 1.0f,  0.05f, I_YAW_DEFAULT            },
+    { "Inertia Roll",     "kg\xb7m\xb2", &I_ROLL,           0.01f, 1.0f,  0.05f, I_ROLL_DEFAULT           },
+    { "Linear Drag",      "/s",          &LIN_DRAG,         0.0f,  3.0f,  0.5f,  LIN_DRAG_DEFAULT         },
+    { "Angular Drag",     "/s",          &ANG_DRAG,         0.0f,  10.0f, 0.1f,  ANG_DRAG_DEFAULT         },
+    { "Yaw Coeff",        "",            &K_YAW,            0.01f, 0.2f,  0.01f, K_YAW_DEFAULT            },
+};
+
+struct SettingsLayout { int bx, by, bw, bh, sliderX, sliderW; };
+
+SettingsLayout GetSettingsLayout(int screenW, int screenH) {
+    int bw = 820, bh = 60 + SETTINGS_COUNT * SETTINGS_ROW_H + 50;
+    int bx = (screenW - bw) / 2;
+    int by = (screenH - bh) / 2;
+    return { bx, by, bw, bh, bx + 290, 300 };
+}
+
+Rectangle GetSettingsRowRect(const SettingsLayout& L, int idx) {
+    int ry = L.by + 54 + idx * SETTINGS_ROW_H;
+    return { (float)(L.bx + 2), (float)ry, (float)(L.bw - 4), (float)(SETTINGS_ROW_H - 2) };
+}
+
+Rectangle GetSettingsSliderHitRect(const SettingsLayout& L, int idx) {
+    int ry = L.by + 54 + idx * SETTINGS_ROW_H;
+    return { (float)L.sliderX, (float)ry, (float)L.sliderW, (float)SETTINGS_ROW_H };
+}
+
+Rectangle GetSettingsBackButtonRect(const SettingsLayout& L) {
+    const int btnW = 220, btnH = 52;
+    int bx2 = L.bx + (L.bw - btnW) / 2;
+    int by2 = L.by + L.bh + 24;
+    return { (float)bx2, (float)by2, (float)btnW, (float)btnH };
+}
 }  // namespace
 
 // ---------------------------------------------------------------------------
@@ -145,6 +199,8 @@ void Game::Init() {
     deadTimer = 0;
     winTimer  = 0;
     settingsSelectedIdx = 0;
+    draggingSlider = false;
+    draggedSettingsIdx = 0;
     menuSelectedIdx = 0;
     endScreenSelectedIdx = 0;
     touchGuideAlpha = 1.0f;
@@ -239,53 +295,72 @@ void Game::UpdateMenu() {
 void Game::ActivateMenuButton(int idx) {
     switch (idx) {
         case 0: Reset(); endScreenSelectedIdx = 0; state = GameState::PLAYING; break;
-        case 1: settingsSelectedIdx = 0; state = GameState::SETTINGS; break;
+        case 1: settingsSelectedIdx = 0; draggingSlider = false; state = GameState::SETTINGS; break;
         case 2: state = GameState::INSTRUCTIONS; break;
     }
 }
 
 void Game::UpdateSettings() {
-    struct Entry { float* val; float minV; float maxV; float step; };
-    Entry entries[] = {
-        { &DRONE_MASS,       0.1f,  5.0f,  0.05f  },
-        { &GRAVITY,          0.0f,  20.0f, 0.1f   },
-        { &MAX_THRUST,       0.5f,  10.0f, 0.1f   },
-        { &THRUST_RAMP_UP,   1.0f,  20.0f, 0.5f   },
-        { &THRUST_RAMP_DOWN, 1.0f,  30.0f, 0.5f   },
-        { &ARM_LENGTH,       0.05f, 1.0f,  0.01f  },
-        { &I_PITCH,          0.01f, 1.0f,  0.05f  },
-        { &I_YAW,            0.01f, 1.0f,  0.05f  },
-        { &I_ROLL,           0.01f, 1.0f,  0.05f  },
-        { &LIN_DRAG,         0.0f,  3.0f,  0.5f   },
-        { &ANG_DRAG,         0.0f,  10.0f, 0.1f   },
-        { &K_YAW,            0.01f, 0.2f,  0.01f  },
+    auto exitToMenu = [&] {
+        draggingSlider = false;
+        menuSelectedIdx = 1;
+        state = GameState::MENU;
     };
-    constexpr int COUNT = 12;
 
-    if (IsKeyPressed(KEY_BACKSPACE) || IsKeyPressed(KEY_ESCAPE)) { menuSelectedIdx = 1; state = GameState::MENU; return; }
+    if (IsKeyPressed(KEY_BACKSPACE) || IsKeyPressed(KEY_ESCAPE)) { exitToMenu(); return; }
 
     if (IsKeyPressed(KEY_R)) {
-        DRONE_MASS       = DRONE_MASS_DEFAULT;
-        GRAVITY          = GRAVITY_DEFAULT;
-        MAX_THRUST       = MAX_THRUST_DEFAULT;
-        THRUST_RAMP_UP   = THRUST_RAMP_UP_DEFAULT;
-        THRUST_RAMP_DOWN = THRUST_RAMP_DOWN_DEFAULT;
-        ARM_LENGTH       = ARM_LENGTH_DEFAULT;
-        I_PITCH          = I_PITCH_DEFAULT;
-        I_YAW            = I_YAW_DEFAULT;
-        I_ROLL           = I_ROLL_DEFAULT;
-        LIN_DRAG         = LIN_DRAG_DEFAULT;
-        ANG_DRAG         = ANG_DRAG_DEFAULT;
-        K_YAW            = K_YAW_DEFAULT;
+        for (const SettingsEntry& e : kSettingsEntries) *e.val = e.defaultVal;
         return;
     }
 
-    if (IsKeyPressed(KEY_UP))   settingsSelectedIdx = (settingsSelectedIdx - 1 + COUNT) % COUNT;
-    if (IsKeyPressed(KEY_DOWN)) settingsSelectedIdx = (settingsSelectedIdx + 1) % COUNT;
+    if (IsKeyPressed(KEY_UP))   settingsSelectedIdx = (settingsSelectedIdx - 1 + SETTINGS_COUNT) % SETTINGS_COUNT;
+    if (IsKeyPressed(KEY_DOWN)) settingsSelectedIdx = (settingsSelectedIdx + 1) % SETTINGS_COUNT;
 
-    Entry& e = entries[settingsSelectedIdx];
-    if (IsKeyDown(KEY_LEFT))  *e.val = fmaxf(e.minV, *e.val - e.step);
-    if (IsKeyDown(KEY_RIGHT)) *e.val = fminf(e.maxV, *e.val + e.step);
+    const SettingsEntry& ke = kSettingsEntries[settingsSelectedIdx];
+    if (IsKeyDown(KEY_LEFT))  *ke.val = fmaxf(ke.minV, *ke.val - ke.step);
+    if (IsKeyDown(KEY_RIGHT)) *ke.val = fminf(ke.maxV, *ke.val + ke.step);
+
+    // Pointer (mouse/touch) handling for sliders
+    SettingsLayout L = GetSettingsLayout(screenWidth, screenHeight);
+    bool pointerDown = IsPrimaryPointerDown();
+
+    if (draggingSlider) {
+        if (pointerDown) {
+            float px = GetPrimaryPointerPosition().x;
+            const SettingsEntry& e = kSettingsEntries[draggedSettingsIdx];
+            float t = Clamp((px - L.sliderX) / (float)L.sliderW, 0.0f, 1.0f);
+            *e.val = e.minV + t * (e.maxV - e.minV);
+        } else {
+            draggingSlider = false;
+        }
+    } else if (pointerDown) {
+        Vector2 pp = GetPrimaryPointerPosition();
+        for (int i = 0; i < SETTINGS_COUNT; i++) {
+            if (CheckCollisionPointRec(pp, GetSettingsRowRect(L, i))) {
+                settingsSelectedIdx = i;
+                if (CheckCollisionPointRec(pp, GetSettingsSliderHitRect(L, i))) {
+                    draggingSlider = true;
+                    draggedSettingsIdx = i;
+                    const SettingsEntry& e = kSettingsEntries[i];
+                    float t = Clamp((pp.x - L.sliderX) / (float)L.sliderW, 0.0f, 1.0f);
+                    *e.val = e.minV + t * (e.maxV - e.minV);
+                }
+                break;
+            }
+        }
+    }
+
+    // Back button (discrete — skip while a slider drag is in progress)
+    if (!draggingSlider) {
+        Rectangle backRect = GetSettingsBackButtonRect(L);
+        if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT) && CheckCollisionPointRec(GetMousePosition(), backRect)) {
+            exitToMenu(); return;
+        }
+        if (ConsumeCompletedTap() && CheckCollisionPointRec(tapStart, backRect)) {
+            exitToMenu(); return;
+        }
+    }
 }
 
 void Game::UpdateInstructions() {
@@ -736,42 +811,20 @@ void Game::DrawWin() const {
 }
 
 void Game::DrawSettings() const {
-    struct Entry { const char* label; const char* unit; float* val; float minV; float maxV; };
-    Entry entries[] = {
-        { "Mass",            "kg",     &DRONE_MASS,       0.1f,  5.0f  },
-        { "Gravity",         "m/s\xb2",&GRAVITY,          0.0f,  20.0f },
-        { "Max Thrust",      "N",      &MAX_THRUST,       0.5f,  10.0f },
-        { "Thrust Ramp Up",  "N/s",    &THRUST_RAMP_UP,   1.0f,  20.0f },
-        { "Thrust Ramp Down","N/s",    &THRUST_RAMP_DOWN, 1.0f,  30.0f },
-        { "Arm Length",      "m",      &ARM_LENGTH,       0.05f, 1.0f  },
-        { "Inertia Pitch",   "kg\xb7m\xb2",&I_PITCH,     0.01f, 1.0f  },
-        { "Inertia Yaw",     "kg\xb7m\xb2",&I_YAW,       0.01f, 1.0f  },
-        { "Inertia Roll",    "kg\xb7m\xb2",&I_ROLL,       0.01f, 1.0f  },
-        { "Linear Drag",     "/s",     &LIN_DRAG,         0.0f,  3.0f  },
-        { "Angular Drag",    "/s",     &ANG_DRAG,         0.0f,  10.0f },
-        { "Yaw Coeff",       "",       &K_YAW,            0.001f,0.2f  },
-    };
-    constexpr int COUNT = 12;
-    constexpr int ROW_H = 34;
+    SettingsLayout L = GetSettingsLayout(screenWidth, screenHeight);
+    DrawRectangle(L.bx, L.by, L.bw, L.bh, {0, 0, 0, 180});
 
-    int bw = 820, bh = 60 + COUNT * ROW_H + 50;
-    int bx = (screenWidth  - bw) / 2;
-    int by = (screenHeight - bh) / 2;
-    DrawRectangle(bx, by, bw, bh, {0, 0, 0, 180});
+    DrawCenteredText("PHYSICS SETTINGS", L.by + 14, 28, WHITE);
 
-    DrawCenteredText("PHYSICS SETTINGS", by + 14, 28, WHITE);
+    int labelX = L.bx + 20;
+    int valueX = L.bx + L.bw - 120;
 
-    int sliderX  = bx + 290;
-    int sliderW  = 300;
-    int labelX   = bx + 20;
-    int valueX   = bx + bw - 120;
-
-    for (int i = 0; i < COUNT; i++) {
-        int ry = by + 54 + i * ROW_H;
-        Entry& e = entries[i];
+    for (int i = 0; i < SETTINGS_COUNT; i++) {
+        int ry = L.by + 54 + i * SETTINGS_ROW_H;
+        const SettingsEntry& e = kSettingsEntries[i];
 
         if (i == settingsSelectedIdx)
-            DrawRectangle(bx + 2, ry, bw - 4, ROW_H - 2, {255, 255, 255, 30});
+            DrawRectangle(L.bx + 2, ry, L.bw - 4, SETTINGS_ROW_H - 2, {255, 255, 255, 30});
 
         Color textCol = (i == settingsSelectedIdx) ? WHITE : LIGHTGRAY;
 
@@ -779,24 +832,28 @@ void Game::DrawSettings() const {
         DrawText(e.label, labelX, ry + 8, 18, textCol);
 
         // Slider track
-        DrawRectangle(sliderX, ry + 12, sliderW, 10, {80, 80, 80, 255});
+        DrawRectangle(L.sliderX, ry + 12, L.sliderW, 10, {80, 80, 80, 255});
 
         // Slider fill
         float t = (*e.val - e.minV) / (e.maxV - e.minV);
-        int fillW = (int)(t * sliderW);
+        int fillW = (int)(t * L.sliderW);
         Color fillCol = (i == settingsSelectedIdx) ? WHITE : GRAY;
-        DrawRectangle(sliderX, ry + 12, fillW, 10, fillCol);
+        DrawRectangle(L.sliderX, ry + 12, fillW, 10, fillCol);
 
         // Slider thumb
-        DrawRectangle(sliderX + fillW - 3, ry + 8, 6, 18,
+        DrawRectangle(L.sliderX + fillW - 3, ry + 8, 6, 18,
                       (i == settingsSelectedIdx) ? YELLOW : DARKGRAY);
 
         // Value + unit
         DrawText(TextFormat("%.3g %s", *e.val, e.unit), valueX, ry + 8, 17, textCol);
     }
 
-    DrawCenteredText("Keyboard only: Up/Down Select   Left/Right Adjust   R Reset defaults   Backspace/Escape Back",
-                     by + bh - 26, 16, {180, 180, 180, 255});
+    DrawCenteredText("Drag sliders or Up/Down + Left/Right to adjust   R Reset defaults   Back or Backspace/Escape to exit",
+                     L.by + L.bh - 26, 16, {180, 180, 180, 255});
+
+    Rectangle backRect = GetSettingsBackButtonRect(L);
+    bool backHovered = CheckCollisionPointRec(GetMousePosition(), backRect);
+    DrawMenuButton("BACK", backRect, backHovered);
 }
 
 void Game::DrawInstructions() const {
