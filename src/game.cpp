@@ -1,6 +1,11 @@
 #include "game.h"
 #include "raymath.h"
+#include "save.h"
+#include <cctype>
 #include <cmath>
+#include <cstdlib>
+#include <sstream>
+#include <string>
 
 #if defined(__EMSCRIPTEN__)
 #include <emscripten/emscripten.h>
@@ -296,9 +301,14 @@ void Game::Init() {
     startPad.halfSize = 1.0f;
     pad.position      = {0, 0, PAD_WORLD_Z};
     pad.halfSize      = 1.0f;
-    bestScores[(int)Difficulty::HARD]   = 0;
-    bestScores[(int)Difficulty::EASY]   = 0;
+    for (int i = 0; i < DIFFICULTY_COUNT; i++) {
+        bestScores[i] = 0;
+        bestTimes[i]  = 0;
+    }
     perfectLanding    = false;
+    runTime           = 0;
+    runTimerStarted   = false;
+    newBestTime       = false;
 
     camera.fovy       = CAMERA_FOV;
     camera.projection = CAMERA_PERSPECTIVE;
@@ -310,6 +320,7 @@ void Game::Init() {
 
     state = GameState::MENU;
     difficulty = Difficulty::EASY;
+    LoadProgress();  // may override difficulty, bests and physics settings
     crashReason = CrashReason::NONE;
     drone.Init({0, DRONE_REST_Y, 0}, difficulty == Difficulty::EASY);
     physicsAccumulator = 0;
@@ -334,6 +345,9 @@ void Game::Reset() {
     drone.Init({0, DRONE_REST_Y, 0}, difficulty == Difficulty::EASY);
     crashReason = CrashReason::NONE;
     perfectLanding = false;
+    runTime = 0;
+    runTimerStarted = false;
+    newBestTime = false;
     physicsAccumulator = 0;
     deadTimer = 0;
     winTimer  = 0;
@@ -347,6 +361,57 @@ void Game::Reset() {
     camera.target   = {0, DRONE_REST_Y, 0};
     camera.up       = {0, 1, 0};
     camera.fovy     = CAMERA_FOV;
+}
+
+// ---------------------------------------------------------------------------
+//  Saved progress: key=value lines (difficulty, per-difficulty bests, settings)
+// ---------------------------------------------------------------------------
+
+static const char* DifficultyKey(int i) {
+    return i == (int)Difficulty::EASY ? "easy" : "hard";
+}
+
+// "Thrust Ramp Up" -> "thrust_ramp_up"
+static std::string SettingKey(const char* label) {
+    std::string key = "setting.";
+    for (const char* c = label; *c; c++)
+        key += (*c == ' ') ? '_' : (char)tolower((unsigned char)*c);
+    return key;
+}
+
+void Game::LoadProgress() {
+    std::istringstream in(LoadSaveData());
+    std::string line;
+    while (std::getline(in, line)) {
+        size_t eq = line.find('=');
+        if (eq == std::string::npos) continue;
+        std::string key = line.substr(0, eq), value = line.substr(eq + 1);
+        float v = strtof(value.c_str(), nullptr);
+
+        if (key == "difficulty") {
+            if (value == "easy") difficulty = Difficulty::EASY;
+            if (value == "hard") difficulty = Difficulty::HARD;
+            continue;
+        }
+        for (int i = 0; i < DIFFICULTY_COUNT; i++) {
+            if (key == std::string("best_progress_") + DifficultyKey(i)) bestScores[i] = Clamp(v, 0.0f, 100.0f);
+            if (key == std::string("best_time_") + DifficultyKey(i))     bestTimes[i]  = fmaxf(v, 0.0f);
+        }
+        for (const SettingsEntry& e : kSettingsEntries)
+            if (key == SettingKey(e.label)) *e.val = Clamp(v, e.minV, e.maxV);
+    }
+}
+
+void Game::SaveProgress() const {
+    std::ostringstream out;
+    out << "difficulty=" << DifficultyKey((int)difficulty) << "\n";
+    for (int i = 0; i < DIFFICULTY_COUNT; i++) {
+        out << "best_progress_" << DifficultyKey(i) << "=" << bestScores[i] << "\n";
+        out << "best_time_"     << DifficultyKey(i) << "=" << bestTimes[i]  << "\n";
+    }
+    for (const SettingsEntry& e : kSettingsEntries)
+        out << SettingKey(e.label) << "=" << *e.val << "\n";
+    StoreSaveData(out.str());
 }
 
 // ---------------------------------------------------------------------------
@@ -393,8 +458,8 @@ void Game::UpdateMenu() {
 
     // Left/Right set the difficulty switch directly when it is selected
     if (menuSelectedIdx == MENU_MODE) {
-        if (IsKeyPressed(KEY_LEFT))  difficulty = Difficulty::EASY;
-        if (IsKeyPressed(KEY_RIGHT)) difficulty = Difficulty::HARD;
+        if (IsKeyPressed(KEY_LEFT))  { difficulty = Difficulty::EASY; SaveProgress(); }
+        if (IsKeyPressed(KEY_RIGHT)) { difficulty = Difficulty::HARD; SaveProgress(); }
     }
 
     // Activate via keyboard Enter / Space
@@ -418,6 +483,7 @@ void Game::ActivateMenuButton(int idx) {
         case MENU_START:        Reset(); endScreenSelectedIdx = 0; state = GameState::PLAYING; break;
         case MENU_MODE:
             difficulty = (difficulty == Difficulty::EASY) ? Difficulty::HARD : Difficulty::EASY;
+            SaveProgress();
             break;
         case MENU_SETTINGS:     settingsSelectedIdx = 0; draggingSlider = false; state = GameState::SETTINGS; break;
         case MENU_INSTRUCTIONS: state = GameState::INSTRUCTIONS; break;
@@ -426,6 +492,7 @@ void Game::ActivateMenuButton(int idx) {
 
 void Game::UpdateSettings() {
     auto exitToMenu = [&] {
+        SaveProgress();
         draggingSlider = false;
         menuSelectedIdx = MENU_SETTINGS;
         state = GameState::MENU;
@@ -499,8 +566,8 @@ void Game::UpdateInstructions() {
 }
 
 void Game::UpdatePlaying(float dt) {
-    if (IsKeyPressed(KEY_BACKSPACE) || IsKeyPressed(KEY_ESCAPE)) { state = GameState::MENU; return; }
-    if (IsKeyPressed(KEY_R)) { Reset(); return; }
+    if (IsKeyPressed(KEY_BACKSPACE) || IsKeyPressed(KEY_ESCAPE)) { SaveProgress(); state = GameState::MENU; return; }
+    if (IsKeyPressed(KEY_R)) { SaveProgress(); Reset(); return; }
 
     int w = GetScreenWidth();
     int h = GetScreenHeight();
@@ -510,8 +577,10 @@ void Game::UpdatePlaying(float dt) {
     bool rearLeftInput   = IsKeyDown(KEY_A) || IsRotorTouchDown(ROTOR_REAR_LEFT, w, h);
     bool rearRightInput  = IsKeyDown(KEY_S) || IsRotorTouchDown(ROTOR_REAR_RIGHT, w, h);
 
-    if (frontLeftInput || frontRightInput || rearLeftInput || rearRightInput)
+    if (frontLeftInput || frontRightInput || rearLeftInput || rearRightInput) {
         touchGuideDismissed = true;
+        runTimerStarted = true;  // time on the start pad before the first input doesn't count
+    }
 
     if (touchGuideDismissed)
         touchGuideAlpha = fmaxf(0.0f, touchGuideAlpha - TOUCH_GUIDE_FADE_SPEED * dt);
@@ -525,12 +594,15 @@ void Game::UpdatePlaying(float dt) {
         for (int i = 0; i < ROTOR_COUNT; i++)
             drone.SetRotorInput((RotorID)i, rotorInputs[i], PHYSICS_DT);
         drone.Update(PHYSICS_DT);
+        if (runTimerStarted) runTime += PHYSICS_DT;
         CheckGameStatus();
     }
     UpdateCamera(dt);
 
     float progress = fminf(drone.distanceTraveled / fabsf(PAD_WORLD_Z) * 100.0f, 100.0f);
     if (progress > BestScore()) BestScore() = progress;
+
+    if (state != GameState::PLAYING) SaveProgress();  // run ended (WIN or DEAD)
 }
 
 void Game::UpdateDead(float dt) {
@@ -690,6 +762,10 @@ void Game::CheckGameStatus() {
         float speed = Vector3Length(drone.velocity);
         perfectLanding = speed < perfectLandSpeed && drone.GetTiltAngle() < perfectLandAngle;
         BestScore() = fmaxf(BestScore(), perfectLanding ? 100.0f : 99.999f);
+
+        float& bestTime = bestTimes[(int)difficulty];
+        newBestTime = bestTime <= 0.0f || runTime < bestTime;
+        if (newBestTime) bestTime = runTime;
 
         return;
     }
@@ -911,15 +987,21 @@ void Game::DrawPlaying() const {
     DrawText(TextFormat("Speed:  %.1f m/s",  Vector3Length(drone.velocity)),    sx, sy + 26, 20, WHITE);
     DrawText(TextFormat("Progress: %.0f%%",
         fminf(drone.distanceTraveled / fabsf(PAD_WORLD_Z) * 100.0f, 100.0f)), sx, sy + 52, 20, YELLOW);
-    if (BestScore() > 0)
-        DrawText(TextFormat("Best:   %.0f%%", BestScore()), sx, sy + 78, 20, GREEN);
+    DrawText(TextFormat("Time:    %.2f s", runTime), sx, sy + 78, 20, WHITE);
+
+    // Best time once the level has been completed, otherwise best progress
+    float bestTime = bestTimes[(int)difficulty];
+    if (bestTime > 0)
+        DrawText(TextFormat("Best:    %.2f s", bestTime), sx, sy + 104, 20, GREEN);
+    else if (BestScore() > 0)
+        DrawText(TextFormat("Best:   %.0f%%", BestScore()), sx, sy + 104, 20, GREEN);
 
     float tilt = drone.GetTiltAngle();
     Color tc   = tilt < 15 ? GREEN : (tilt < 35 ? YELLOW : RED);
-    DrawText(TextFormat("Tilt:     %.0f°",  tilt), sx, sy + 104, 20, tc);
+    DrawText(TextFormat("Tilt:     %.0f°",  tilt), sx, sy + 130, 20, tc);
 
     if (difficulty == Difficulty::EASY)
-        DrawText("Easy mode", sx, sy + 130, 20, WHITE);
+        DrawText("Easy mode", sx, sy + 156, 20, WHITE);
 }
 
 void Game::DrawDead() const {
@@ -974,8 +1056,11 @@ void Game::DrawWin() const {
         DrawCenteredText("Progress:  100%",  sh / 2 - 10,  30, WHITE);
         DrawCenteredText("Perfect landing!",    sh / 2 + 30,  24, GOLD);
     }
-    if (difficulty == Difficulty::EASY)
-        DrawCenteredText("Easy mode", sh / 2 + 60, 18, LIGHTGRAY);
+    const char* timeLine = newBestTime
+        ? TextFormat("Time: %.2f s  -  New best!", runTime)
+        : TextFormat("Time: %.2f s  (best %.2f s)", runTime, bestTimes[(int)difficulty]);
+    if (difficulty == Difficulty::EASY) timeLine = TextFormat("%s  -  Easy mode", timeLine);
+    DrawCenteredText(timeLine, sh / 2 + 58, 20, newBestTime ? GOLD : LIGHTGRAY);
 
     int btnY = sh / 2 + 90;
     DrawMenuButton("FLY AGAIN",       GetEndScreenButtonRect(0, sw, btnY), endScreenSelectedIdx == 0);

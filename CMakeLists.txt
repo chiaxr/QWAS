@@ -47,6 +47,7 @@ add_library(qwas_game
     src/drone.cpp
     src/game.cpp
     src/qwas_app.cpp
+    src/save.cpp
 )
 
 target_include_directories(qwas_game PUBLIC include)
@@ -90,6 +91,7 @@ if(QWAS_BUILD_WEB)
         "-sUSE_GLFW=3"
         "-sALLOW_MEMORY_GROWTH=1"
         "-sGL_ENABLE_GET_PROC_ADDRESS=1"
+        "-sDEFAULT_LIBRARY_FUNCS_TO_INCLUDE=$stringToNewUTF8,$UTF8ToString"
         "--shell-file=${CMAKE_CURRENT_LIST_DIR}/web/emscripten_shell.html"
     )
 

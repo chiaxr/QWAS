@@ -41,8 +41,12 @@ struct Game {
     float      physicsAccumulator;  // frame time not yet simulated (< PHYSICS_DT)
     float      deadTimer;        // counts down; press R only when <= 0
     float      winTimer;         // counts up from 0 on WIN entry (drives celebration)
-    float      bestScores[DIFFICULTY_COUNT];  // best progress % this session, per difficulty
+    float      bestScores[DIFFICULTY_COUNT];  // best progress %, per difficulty (saved)
+    float      bestTimes[DIFFICULTY_COUNT];   // fastest landing in seconds, 0 = none yet (saved)
     bool       perfectLanding;   // last WIN was slow and level
+    float      runTime;          // seconds of flight this run (starts on first rotor input)
+    bool       runTimerStarted;
+    bool       newBestTime;      // last WIN set a new best time
     int        settingsSelectedIdx;
     bool       draggingSlider;
     int        draggedSettingsIdx;
@@ -85,6 +89,8 @@ private:
     void DrawOverlay() const;
     void UpdateTap();
     bool TappedIn(Rectangle rect) const;
+    void LoadProgress();
+    void SaveProgress() const;
     float& BestScore()       { return bestScores[(int)difficulty]; }
     float  BestScore() const { return bestScores[(int)difficulty]; }
 };
