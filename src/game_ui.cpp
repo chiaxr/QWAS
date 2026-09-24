@@ -393,7 +393,7 @@ void Game::DrawInstructions() const {
     y += 26;
     DrawText("Fly from the green start pad to the orange landing pad.", lx, y, 17, WHITE);
     y += 20;
-    DrawText("Land gently (low speed, nearly level) to win.", lx, y, 17, WHITE);
+    DrawText("Reach the pad to win. Land slowly and level for a perfect landing.", lx, y, 17, WHITE);
     y += 34;
 
     DrawText("Keyboard Controls", lx, y, 20, YELLOW);
