@@ -355,9 +355,6 @@ void Game::Reset() {
     winTimer  = 0;
     touchGuideAlpha = 1.0f;
     touchGuideDismissed = false;
-    tapWasDown = false;
-    tapCandidate = false;
-    tapStart = {0, 0};
 
     camera.position = {0, 4, 8};
     camera.target   = {0, DRONE_REST_Y, 0};
