@@ -100,7 +100,7 @@ void Drone::Update(float dt) {
     angularVel.y *= angDrag;
     angularVel.z *= angDrag;
 
-    // --- Quaternion integration (body-frame ω, left-multiply) ---
+    // --- Quaternion integration (body-frame ω, so ω multiplies on the right) ---
     // dq/dt = 0.5 * q * Ω, where Ω = (ωx,ωy,ωz,0)
     Quaternion omegaQ = {angularVel.x, angularVel.y, angularVel.z, 0.0f};
     Quaternion dq = QuaternionMultiply(orientation, omegaQ);

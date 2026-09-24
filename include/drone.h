@@ -58,7 +58,7 @@ struct Rotor {
 struct Drone {
     Vector3    position;
     Vector3    velocity;
-    Quaternion orientation;  // body-from-world; init = QuaternionIdentity
+    Quaternion orientation;  // rotates body-frame vectors into the world frame; init = QuaternionIdentity
     Vector3    angularVel;   // body frame rad/s
     Rotor      rotors[ROTOR_COUNT];
     bool       assisted;          // easy mode: hover idle, softer max thrust, auto-level
