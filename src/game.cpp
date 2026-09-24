@@ -225,14 +225,14 @@ constexpr int SETTINGS_ROW_H = 34;
 
 const SettingsEntry kSettingsEntries[SETTINGS_COUNT] = {
     { "Mass",             "kg",          &DRONE_MASS,       0.1f,  5.0f,  0.05f, DRONE_MASS_DEFAULT       },
-    { "Gravity",          "m/s\xb2",     &GRAVITY,          0.0f,  20.0f, 0.1f,  GRAVITY_DEFAULT          },
+    { "Gravity",          "m/s\xc2\xb2",     &GRAVITY,          0.0f,  20.0f, 0.1f,  GRAVITY_DEFAULT          },
     { "Max Thrust",       "N",           &MAX_THRUST,       0.5f,  10.0f, 0.1f,  MAX_THRUST_DEFAULT       },
     { "Thrust Ramp Up",   "N/s",         &THRUST_RAMP_UP,   1.0f,  20.0f, 0.5f,  THRUST_RAMP_UP_DEFAULT   },
     { "Thrust Ramp Down", "N/s",         &THRUST_RAMP_DOWN, 1.0f,  30.0f, 0.5f,  THRUST_RAMP_DOWN_DEFAULT },
     { "Arm Length",       "m",           &ARM_LENGTH,       0.05f, 1.0f,  0.01f, ARM_LENGTH_DEFAULT       },
-    { "Inertia Pitch",    "kg\xb7m\xb2", &I_PITCH,          0.01f, 1.0f,  0.05f, I_PITCH_DEFAULT          },
-    { "Inertia Yaw",      "kg\xb7m\xb2", &I_YAW,            0.01f, 1.0f,  0.05f, I_YAW_DEFAULT            },
-    { "Inertia Roll",     "kg\xb7m\xb2", &I_ROLL,           0.01f, 1.0f,  0.05f, I_ROLL_DEFAULT           },
+    { "Inertia Pitch",    "kg\xc2\xb7m\xc2\xb2", &I_PITCH,          0.01f, 1.0f,  0.05f, I_PITCH_DEFAULT          },
+    { "Inertia Yaw",      "kg\xc2\xb7m\xc2\xb2", &I_YAW,            0.01f, 1.0f,  0.05f, I_YAW_DEFAULT            },
+    { "Inertia Roll",     "kg\xc2\xb7m\xc2\xb2", &I_ROLL,           0.01f, 1.0f,  0.05f, I_ROLL_DEFAULT           },
     { "Linear Drag",      "/s",          &LIN_DRAG,         0.0f,  3.0f,  0.5f,  LIN_DRAG_DEFAULT         },
     { "Angular Drag",     "/s",          &ANG_DRAG,         0.0f,  10.0f, 0.1f,  ANG_DRAG_DEFAULT         },
     { "Yaw Coeff",        "",            &K_YAW,            0.01f, 0.2f,  0.01f, K_YAW_DEFAULT            },
