@@ -747,6 +747,7 @@ void Game::Draw() const {
 
     BeginMode3D(camera);
     DrawWorld();
+    if (state == GameState::PLAYING) DrawDepthCues();
     if (state != GameState::MENU) drone.Draw();
     EndMode3D();
 
@@ -801,6 +802,25 @@ void Game::DrawWorld() const {
             DrawSphere({x, 2.2f, z}, 0.65f, DARKGREEN);
         }
     }
+}
+
+// Height/position cue for the chase camera: a shadow on the surface directly
+// below the drone that shrinks and fades with altitude.
+void Game::DrawDepthCues() const {
+    auto over = [&](const LandingPad& p) {
+        return fabsf(drone.position.x - p.position.x) < p.halfSize &&
+               fabsf(drone.position.z - p.position.z) < p.halfSize;
+    };
+    float surfaceY = (over(pad) || over(startPad)) ? PAD_TOP_Y : 0.0f;
+    float height = fmaxf(0.0f, drone.position.y - surfaceY);
+
+    constexpr float fadeHeight = 12.0f;  // shadow is smallest/faintest at this height
+    float k = fminf(height / fadeHeight, 1.0f);
+    float radius = 0.35f - 0.20f * k;
+    float alpha  = 0.55f - 0.35f * k;
+
+    Vector3 ground = {drone.position.x, surfaceY + 0.012f, drone.position.z};
+    DrawCylinder(ground, radius, radius, 0.004f, 24, Fade(BLACK, alpha));
 }
 
 // ---------------------------------------------------------------------------

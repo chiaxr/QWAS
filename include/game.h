@@ -78,6 +78,7 @@ private:
     void UpdateCamera(float dt);
     void CheckGameStatus();
     void DrawWorld() const;
+    void DrawDepthCues() const;
     void DrawOverlay() const;
     void UpdateTap();
     bool TappedIn(Rectangle rect) const;
