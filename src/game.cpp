@@ -817,7 +817,6 @@ void Game::CheckGameStatus() {
         if (!g.valid || runTime < g.time)
             g = {true, runTime, runStart, runInputs, CapturePhysicsSettings()};
     } else if (result.outcome == GameState::DEAD) {
-        drone.alive = false;
         crashReason = result.reason;
         state       = GameState::DEAD;
         deadTimer   = 1.5f;

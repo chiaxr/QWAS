@@ -7,7 +7,6 @@ void Drone::Init(Vector3 spawnPos, bool assistedFlight) {
     velocity     = {0, 0, 0};
     orientation  = QuaternionIdentity();
     angularVel   = {0, 0, 0};
-    alive        = true;
     assisted     = assistedFlight;
 
     const Color colors[ROTOR_COUNT] = {RED, BLUE, GREEN, YELLOW};
