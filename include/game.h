@@ -17,6 +17,9 @@ constexpr float PAD_TOP_Y    = 0.10f;   // top surface of any pad (cube: center 
 constexpr float DRONE_REST_Y = 0.13f;   // drone center when resting on a pad (PAD_TOP_Y + body half-height 0.03)
 constexpr float GROUND_REST_Y = 0.03f;  // drone center when resting level on the grass (body half-height)
 
+// Progress while flying is capped here; 99.999% (landed) and 100% (perfect landing) come only from a WIN
+constexpr float MAX_FLIGHT_PROGRESS = 99.0f;
+
 // Easy mode: touching the grass below both limits is a landing, not a crash
 constexpr float EASY_SAFE_TOUCHDOWN_SPEED = 3.0f;   // m/s
 constexpr float EASY_SAFE_TOUCHDOWN_TILT  = 20.0f;  // degrees (keeps rotors clear of the grass at default arm length)
@@ -56,6 +59,7 @@ struct Game {
     float      bestScores[DIFFICULTY_COUNT];  // best progress %, per difficulty (saved)
     float      bestTimes[DIFFICULTY_COUNT];   // fastest landing in seconds, 0 = none yet (saved)
     bool       perfectLanding;   // last WIN was slow and level
+    float      runProgress;      // closest approach to the pad this run, as progress %
     float      runTime;          // seconds of flight this run (starts on first rotor input)
     bool       runTimerStarted;
     bool       newBestTime;      // last WIN set a new best time
@@ -101,6 +105,7 @@ private:
     void ActivateMenuButton(int idx);
 
     void UpdateCamera(float dt);
+    float ProgressAt(Vector3 position) const;
     struct ContactResult { GameState outcome; CrashReason reason; };  // outcome PLAYING = still flying
     ContactResult ResolveContact(Drone& d) const;
     void CheckGameStatus();

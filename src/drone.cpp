@@ -8,7 +8,6 @@ void Drone::Init(Vector3 spawnPos, bool assistedFlight) {
     orientation  = QuaternionIdentity();
     angularVel   = {0, 0, 0};
     alive        = true;
-    distanceTraveled = 0;
     assisted     = assistedFlight;
 
     const Color colors[ROTOR_COUNT] = {RED, BLUE, GREEN, YELLOW};
@@ -136,13 +135,9 @@ void Drone::Update(float dt) {
     position.y += velocity.y * dt;
     position.z += velocity.z * dt;
 
-    // --- Spin animation & distance tracking ---
+    // --- Spin animation ---
     for (int i = 0; i < ROTOR_COUNT; i++)
         rotors[i].spinAngle += (rotors[i].thrust / GetMaxThrust()) * 30.0f * dt;
-
-    float fwdDist = -position.z;
-    if (fwdDist > distanceTraveled)
-        distanceTraveled = fwdDist;
 }
 
 Vector3 Drone::GetRotorWorldPos(RotorID id) const {

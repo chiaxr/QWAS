@@ -306,6 +306,7 @@ void Game::Init() {
         bestTimes[i]  = 0;
     }
     perfectLanding    = false;
+    runProgress       = 0;
     runTime           = 0;
     runTimerStarted   = false;
     newBestTime       = false;
@@ -345,6 +346,7 @@ void Game::Reset() {
     drone.Init({0, DRONE_REST_Y, 0}, difficulty == Difficulty::EASY);
     crashReason = CrashReason::NONE;
     perfectLanding = false;
+    runProgress = 0;
     runTime = 0;
     runTimerStarted = false;
     newBestTime = false;
@@ -598,8 +600,7 @@ void Game::UpdatePlaying(float dt) {
     }
     UpdateCamera(dt);
 
-    float progress = fminf(drone.distanceTraveled / fabsf(PAD_WORLD_Z) * 100.0f, 100.0f);
-    if (progress > BestScore()) BestScore() = progress;
+    if (runProgress > BestScore()) BestScore() = runProgress;
 
     if (state != GameState::PLAYING) SaveProgress();  // run ended (WIN or DEAD)
 }
@@ -734,6 +735,16 @@ void Game::UpdateCamera(float dt) {
     camera.up = {0, 1, 0};
 }
 
+// Progress toward the landing pad from straight-line distance: 0% at the spawn
+// point, rising as the drone closes in on the pad's landing spot. Capped at
+// MAX_FLIGHT_PROGRESS so only an actual landing scores 99.999% or 100%.
+float Game::ProgressAt(Vector3 position) const {
+    Vector3 goal  = {pad.position.x, DRONE_REST_Y, pad.position.z};
+    Vector3 spawn = {startPad.position.x, DRONE_REST_Y, startPad.position.z};
+    float pct = (1.0f - Vector3Distance(position, goal) / Vector3Distance(spawn, goal)) * 100.0f;
+    return Clamp(pct, 0.0f, MAX_FLIGHT_PROGRESS);
+}
+
 // Applies pad/ground contact to any drone (the player or the ghost) and reports
 // whether it is still flying, has landed on the destination pad, or crashed.
 Game::ContactResult Game::ResolveContact(Drone& d) const {
@@ -847,6 +858,7 @@ void Game::StepPhysics(const bool rotorInputs[ROTOR_COUNT]) {
         runTime += PHYSICS_DT;
     }
     drone.Update(PHYSICS_DT);
+    runProgress = fmaxf(runProgress, ProgressAt(drone.position));
 
     if (ghostActive) StepGhost();
     CheckGameStatus();
@@ -1033,8 +1045,7 @@ void Game::DrawPlaying() const {
     int sx = (w - 210) / 2, sy = 16;
     DrawText(TextFormat("Alt:      %.1f m",  drone.GetAltitude()),              sx, sy,      20, WHITE);
     DrawText(TextFormat("Speed:  %.1f m/s",  Vector3Length(drone.velocity)),    sx, sy + 26, 20, WHITE);
-    DrawText(TextFormat("Progress: %.0f%%",
-        fminf(drone.distanceTraveled / fabsf(PAD_WORLD_Z) * 100.0f, 100.0f)), sx, sy + 52, 20, YELLOW);
+    DrawText(TextFormat("Progress: %.0f%%", ProgressAt(drone.position)), sx, sy + 52, 20, YELLOW);
     DrawText(TextFormat("Time:    %.2f s", runTime), sx, sy + 78, 20, WHITE);
 
     // Best time once the level has been completed, otherwise best progress
@@ -1062,8 +1073,7 @@ void Game::DrawDead() const {
         DrawCenteredText(GetCrashTitle(crashReason), sh / 2 - 100, 60, RED);
         DrawCenteredText(GetCrashHint(crashReason),  sh / 2 - 38,  24, LIGHTGRAY);
 
-        float progress = fminf(drone.distanceTraveled / fabsf(PAD_WORLD_Z) * 100.0f, 100.0f);
-        DrawCenteredText(TextFormat("Progress: %.0f%%", progress), sh / 2, 30, WHITE);
+        DrawCenteredText(TextFormat("Progress: %.0f%%", runProgress), sh / 2, 30, WHITE);
 
         int btnY = sh / 2 + 90;
         DrawMenuButton("RETRY",           GetEndScreenButtonRect(0, sw, btnY), endScreenSelectedIdx == 0);

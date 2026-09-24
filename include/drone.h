@@ -62,7 +62,6 @@ struct Drone {
     Vector3    angularVel;   // body frame rad/s
     Rotor      rotors[ROTOR_COUNT];
     bool       alive;
-    float      distanceTraveled;  // max forward (-Z) distance reached
     bool       assisted;          // easy mode: hover idle, softer max thrust, auto-level
 
     void Init(Vector3 spawnPos, bool assistedFlight);
