@@ -40,12 +40,14 @@ constexpr float TAP_MAX_MOVE = 28.0f;
 enum MenuItem { MENU_START, MENU_MODE, MENU_SETTINGS, MENU_INSTRUCTIONS, MENU_COUNT };
 
 // Ground reaction: rest at restY, kill downward velocity, and damp tilt
-// (simulates contact friction)
+// (simulates contact friction). Called once per physics step; the damping
+// matches the original 0.85 per frame at 60 fps.
 void ApplyGroundContact(Drone& drone, float restY) {
+    static const float contactDamp = powf(0.85f, PHYSICS_DT * 60.0f);
     drone.position.y = restY;
     if (drone.velocity.y < 0.0f) drone.velocity.y = 0.0f;
-    drone.angularVel.x *= 0.85f;
-    drone.angularVel.z *= 0.85f;
+    drone.angularVel.x *= contactDamp;
+    drone.angularVel.z *= contactDamp;
 }
 
 Rectangle GetRotorTouchZone(RotorID id, int screenW, int screenH) {
@@ -310,6 +312,7 @@ void Game::Init() {
     difficulty = Difficulty::EASY;
     crashReason = CrashReason::NONE;
     drone.Init({0, DRONE_REST_Y, 0}, difficulty == Difficulty::EASY);
+    physicsAccumulator = 0;
     deadTimer = 0;
     winTimer  = 0;
     settingsSelectedIdx = 0;
@@ -331,6 +334,7 @@ void Game::Reset() {
     drone.Init({0, DRONE_REST_Y, 0}, difficulty == Difficulty::EASY);
     crashReason = CrashReason::NONE;
     perfectLanding = false;
+    physicsAccumulator = 0;
     deadTimer = 0;
     winTimer  = 0;
     touchGuideAlpha = 1.0f;
@@ -512,14 +516,18 @@ void Game::UpdatePlaying(float dt) {
     if (touchGuideDismissed)
         touchGuideAlpha = fmaxf(0.0f, touchGuideAlpha - TOUCH_GUIDE_FADE_SPEED * dt);
 
-    drone.SetRotorInput(ROTOR_FRONT_LEFT, frontLeftInput, dt);
-    drone.SetRotorInput(ROTOR_FRONT_RIGHT, frontRightInput, dt);
-    drone.SetRotorInput(ROTOR_REAR_LEFT, rearLeftInput, dt);
-    drone.SetRotorInput(ROTOR_REAR_RIGHT, rearRightInput, dt);
-
-    drone.Update(dt);
+    // Fixed-step physics: inputs are sampled once per frame and the simulation
+    // advances in PHYSICS_DT steps, so flight behaves the same at any frame rate
+    const bool rotorInputs[ROTOR_COUNT] = {frontLeftInput, frontRightInput, rearLeftInput, rearRightInput};
+    physicsAccumulator += dt;
+    while (physicsAccumulator >= PHYSICS_DT && state == GameState::PLAYING) {
+        physicsAccumulator -= PHYSICS_DT;
+        for (int i = 0; i < ROTOR_COUNT; i++)
+            drone.SetRotorInput((RotorID)i, rotorInputs[i], PHYSICS_DT);
+        drone.Update(PHYSICS_DT);
+        CheckGameStatus();
+    }
     UpdateCamera(dt);
-    CheckGameStatus();
 
     float progress = fminf(drone.distanceTraveled / fabsf(PAD_WORLD_Z) * 100.0f, 100.0f);
     if (progress > BestScore()) BestScore() = progress;

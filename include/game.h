@@ -7,6 +7,8 @@ constexpr float CHASE_HEIGHT  = 2.0f;
 constexpr float CAMERA_FOV    = 60.0f;
 constexpr float CAMERA_SMOOTH = 3.0f;
 
+constexpr float PHYSICS_DT    = 1.0f / 240.0f;  // fixed physics step, independent of frame rate
+
 constexpr float PAD_WORLD_Z   = -25.0f;  // landing pad distance (meters forward)
 constexpr float PAD_TOP_Y    = 0.10f;   // top surface of any pad (cube: center 0.05, height 0.10)
 constexpr float DRONE_REST_Y = 0.13f;   // drone center when resting on a pad (PAD_TOP_Y + body half-height 0.03)
@@ -36,6 +38,7 @@ struct Game {
     LandingPad startPad;  // spawn pad; ground contact here is never a crash
     LandingPad pad;       // destination pad
     Camera3D   camera;
+    float      physicsAccumulator;  // frame time not yet simulated (< PHYSICS_DT)
     float      deadTimer;        // counts down; press R only when <= 0
     float      winTimer;         // counts up from 0 on WIN entry (drives celebration)
     float      bestScores[DIFFICULTY_COUNT];  // best progress % this session, per difficulty
