@@ -1,6 +1,8 @@
 #pragma once
 #include "raylib.h"
 #include "drone.h"
+#include <cstdint>
+#include <vector>
 
 constexpr float CHASE_DIST    = 4.0f;
 constexpr float CHASE_HEIGHT  = 2.0f;
@@ -8,6 +10,7 @@ constexpr float CAMERA_FOV    = 60.0f;
 constexpr float CAMERA_SMOOTH = 3.0f;
 
 constexpr float PHYSICS_DT    = 1.0f / 240.0f;  // fixed physics step, independent of frame rate
+constexpr float GHOST_ALPHA   = 0.45f;          // opacity of the best-run ghost drone
 
 constexpr float PAD_WORLD_Z   = -25.0f;  // landing pad distance (meters forward)
 constexpr float PAD_TOP_Y    = 0.10f;   // top surface of any pad (cube: center 0.05, height 0.10)
@@ -26,6 +29,15 @@ enum class CrashReason { NONE, ROTOR_STRIKE, GROUND_IMPACT, TOO_HIGH, OUT_OF_BOU
 struct LandingPad {
     Vector3 position;  // center
     float   halfSize;  // half-width of square pad
+};
+
+// A recorded landing that can be replayed exactly (physics is deterministic)
+struct GhostRun {
+    bool                 valid = false;
+    float                time = 0;        // run time of the recorded landing
+    Drone                start = {};      // drone state at the run's first input
+    std::vector<uint8_t> inputs;          // rotor key bitmask (bit i = RotorID i) per physics step
+    std::vector<float>   settings;        // physics settings it was recorded with
 };
 
 struct Game {
@@ -47,6 +59,12 @@ struct Game {
     float      runTime;          // seconds of flight this run (starts on first rotor input)
     bool       runTimerStarted;
     bool       newBestTime;      // last WIN set a new best time
+    Drone      runStart;         // drone state when this run's timer started
+    std::vector<uint8_t> runInputs;          // this run's rotor inputs per physics step
+    GhostRun   ghostRuns[DIFFICULTY_COUNT];  // fastest landing this session, per difficulty
+    Drone      ghost;            // replay of ghostRuns[difficulty]
+    size_t     ghostStep;
+    bool       ghostActive;      // ghost is flying alongside this run
     int        settingsSelectedIdx;
     bool       draggingSlider;
     int        draggedSettingsIdx;
@@ -83,7 +101,13 @@ private:
     void ActivateMenuButton(int idx);
 
     void UpdateCamera(float dt);
+    struct ContactResult { GameState outcome; CrashReason reason; };  // outcome PLAYING = still flying
+    ContactResult ResolveContact(Drone& d) const;
     void CheckGameStatus();
+    void StartRun();
+    void StepPhysics(const bool rotorInputs[ROTOR_COUNT]);
+    void StepGhost();
+    static std::vector<float> CapturePhysicsSettings();
     void DrawWorld() const;
     void DrawDepthCues() const;
     void DrawOverlay() const;

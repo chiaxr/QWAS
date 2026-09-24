@@ -348,6 +348,9 @@ void Game::Reset() {
     runTime = 0;
     runTimerStarted = false;
     newBestTime = false;
+    runInputs.clear();
+    ghostActive = false;
+    ghostStep = 0;
     physicsAccumulator = 0;
     deadTimer = 0;
     winTimer  = 0;
@@ -579,7 +582,7 @@ void Game::UpdatePlaying(float dt) {
 
     if (frontLeftInput || frontRightInput || rearLeftInput || rearRightInput) {
         touchGuideDismissed = true;
-        runTimerStarted = true;  // time on the start pad before the first input doesn't count
+        if (!runTimerStarted) StartRun();  // time on the start pad before the first input doesn't count
     }
 
     if (touchGuideDismissed)
@@ -591,11 +594,7 @@ void Game::UpdatePlaying(float dt) {
     physicsAccumulator += dt;
     while (physicsAccumulator >= PHYSICS_DT && state == GameState::PLAYING) {
         physicsAccumulator -= PHYSICS_DT;
-        for (int i = 0; i < ROTOR_COUNT; i++)
-            drone.SetRotorInput((RotorID)i, rotorInputs[i], PHYSICS_DT);
-        drone.Update(PHYSICS_DT);
-        if (runTimerStarted) runTime += PHYSICS_DT;
-        CheckGameStatus();
+        StepPhysics(rotorInputs);
     }
     UpdateCamera(dt);
 
@@ -735,25 +734,57 @@ void Game::UpdateCamera(float dt) {
     camera.up = {0, 1, 0};
 }
 
-void Game::CheckGameStatus() {
+// Applies pad/ground contact to any drone (the player or the ghost) and reports
+// whether it is still flying, has landed on the destination pad, or crashed.
+Game::ContactResult Game::ResolveContact(Drone& d) const {
     // --- Starting pad: ground contact here is never a crash ---
-    bool onStartPad = fabsf(drone.position.x - startPad.position.x) < startPad.halfSize &&
-                      fabsf(drone.position.z - startPad.position.z) < startPad.halfSize;
+    bool onStartPad = fabsf(d.position.x - startPad.position.x) < startPad.halfSize &&
+                      fabsf(d.position.z - startPad.position.z) < startPad.halfSize;
 
     if (onStartPad) {
         // Detect contact: drone sinking into the pad surface
-        bool grounded = drone.position.y < DRONE_REST_Y;
-
-        if (grounded)
-            ApplyGroundContact(drone, DRONE_REST_Y);
-        return;  // never crash while on the starting pad
+        if (d.position.y < DRONE_REST_Y)
+            ApplyGroundContact(d, DRONE_REST_Y);
+        return {GameState::PLAYING, CrashReason::NONE};  // never crash while on the starting pad
     }
 
-    // --- Destination pad: ground reaction + win check (before crash checks) ---
-    bool reachedPad = fabsf(drone.position.x - pad.position.x) < pad.halfSize &&
-                   fabsf(drone.position.z - pad.position.z) < pad.halfSize &&
-                   drone.position.y < DRONE_REST_Y + 0.5f;
-    if (reachedPad) {
+    // --- Destination pad: win check (before crash checks) ---
+    bool reachedPad = fabsf(d.position.x - pad.position.x) < pad.halfSize &&
+                      fabsf(d.position.z - pad.position.z) < pad.halfSize &&
+                      d.position.y < DRONE_REST_Y + 0.5f;
+    if (reachedPad)
+        return {GameState::WIN, CrashReason::NONE};
+
+    // --- Easy mode: gentle touchdowns on the grass are safe ---
+    if (difficulty == Difficulty::EASY) {
+        // Lowest center height that keeps the body and every rotor above the grass
+        float restY = GROUND_REST_Y;
+        for (int i = 0; i < ROTOR_COUNT; i++)
+            restY = fmaxf(restY, d.position.y - d.GetRotorWorldPos((RotorID)i).y);
+
+        bool gentle = Vector3Length(d.velocity) < EASY_SAFE_TOUCHDOWN_SPEED &&
+                      d.GetTiltAngle() < EASY_SAFE_TOUCHDOWN_TILT;
+        if (d.position.y < restY && gentle) {
+            ApplyGroundContact(d, restY);
+            return {GameState::PLAYING, CrashReason::NONE};
+        }
+    }
+
+    // --- Normal crash checks (only when away from both pads) ---
+    for (int i = 0; i < ROTOR_COUNT; i++)
+        if (d.GetRotorWorldPos((RotorID)i).y < 0.0f)
+            return {GameState::DEAD, CrashReason::ROTOR_STRIKE};
+    if (d.position.y < 0.0f)            return {GameState::DEAD, CrashReason::GROUND_IMPACT};
+    if (d.position.y > 15.0f)           return {GameState::DEAD, CrashReason::TOO_HIGH};
+    if (fabsf(d.position.x) > 20.0f)    return {GameState::DEAD, CrashReason::OUT_OF_BOUNDS};
+
+    return {GameState::PLAYING, CrashReason::NONE};
+}
+
+void Game::CheckGameStatus() {
+    ContactResult result = ResolveContact(drone);
+
+    if (result.outcome == GameState::WIN) {
         state = GameState::WIN;
 
         // Perfect win - only if drone lands gently and level
@@ -767,58 +798,74 @@ void Game::CheckGameStatus() {
         newBestTime = bestTime <= 0.0f || runTime < bestTime;
         if (newBestTime) bestTime = runTime;
 
-        return;
+        // Fastest landing this session becomes the ghost for this difficulty
+        GhostRun& g = ghostRuns[(int)difficulty];
+        if (!g.valid || runTime < g.time)
+            g = {true, runTime, runStart, runInputs, CapturePhysicsSettings()};
+    } else if (result.outcome == GameState::DEAD) {
+        drone.alive = false;
+        crashReason = result.reason;
+        state       = GameState::DEAD;
+        deadTimer   = 1.5f;
     }
+}
 
-    // --- Easy mode: gentle touchdowns on the grass are safe ---
-    if (difficulty == Difficulty::EASY) {
-        // Lowest center height that keeps the body and every rotor above the grass
-        float restY = GROUND_REST_Y;
-        for (int i = 0; i < ROTOR_COUNT; i++)
-            restY = fmaxf(restY, drone.position.y - drone.GetRotorWorldPos((RotorID)i).y);
+// ---------------------------------------------------------------------------
+//  Run recording and ghost replay
+// ---------------------------------------------------------------------------
 
-        bool gentle = Vector3Length(drone.velocity) < EASY_SAFE_TOUCHDOWN_SPEED &&
-                      drone.GetTiltAngle() < EASY_SAFE_TOUCHDOWN_TILT;
-        if (drone.position.y < restY && gentle) {
-            ApplyGroundContact(drone, restY);
-            return;
-        }
+std::vector<float> Game::CapturePhysicsSettings() {
+    std::vector<float> values;
+    for (const SettingsEntry& e : kSettingsEntries) values.push_back(*e.val);
+    return values;
+}
+
+// First rotor input of a run: start the timer and recording, and launch the
+// ghost from the same starting state if one was recorded with these settings.
+void Game::StartRun() {
+    runTimerStarted = true;
+    runStart = drone;
+    runInputs.clear();
+
+    const GhostRun& g = ghostRuns[(int)difficulty];
+    ghostActive = g.valid && g.settings == CapturePhysicsSettings();
+    if (ghostActive) {
+        ghost = g.start;
+        ghostStep = 0;
     }
+}
 
-    // --- Normal crash checks (only when away from both pads) ---
+// One fixed physics step of a run: player drone, recording/timer, ghost, status
+void Game::StepPhysics(const bool rotorInputs[ROTOR_COUNT]) {
+    uint8_t mask = 0;
     for (int i = 0; i < ROTOR_COUNT; i++) {
-        if (drone.GetRotorWorldPos((RotorID)i).y < 0.0f) {
-            drone.alive = false;
-            crashReason = CrashReason::ROTOR_STRIKE;
-            state       = GameState::DEAD;
-            deadTimer   = 1.5f;
-            return;
-        }
+        drone.SetRotorInput((RotorID)i, rotorInputs[i], PHYSICS_DT);
+        if (rotorInputs[i]) mask |= (uint8_t)(1 << i);
     }
+    if (runTimerStarted) {
+        runInputs.push_back(mask);
+        runTime += PHYSICS_DT;
+    }
+    drone.Update(PHYSICS_DT);
 
-    if (drone.position.y < 0.0f) {
-        drone.alive = false;
-        crashReason = CrashReason::GROUND_IMPACT;
-        state       = GameState::DEAD;
-        deadTimer   = 1.5f;
-        return;
-    }
+    if (ghostActive) StepGhost();
+    CheckGameStatus();
+}
 
-    if (drone.position.y > 15.0f) {
-        drone.alive = false;
-        crashReason = CrashReason::TOO_HIGH;
-        state       = GameState::DEAD;
-        deadTimer   = 1.5f;
-        return;
-    }
+// Replays the ghost's recorded inputs one step at a time. Physics is
+// deterministic, so it retraces the recorded run exactly; once the recording
+// ends (its landing) or it stops flying, it stays where it is.
+void Game::StepGhost() {
+    const GhostRun& g = ghostRuns[(int)difficulty];
+    if (ghostStep >= g.inputs.size()) return;
 
-    if (fabsf(drone.position.x) > 20.0f) {
-        drone.alive = false;
-        crashReason = CrashReason::OUT_OF_BOUNDS;
-        state       = GameState::DEAD;
-        deadTimer   = 1.5f;
-        return;
-    }
+    uint8_t mask = g.inputs[ghostStep++];
+    for (int i = 0; i < ROTOR_COUNT; i++)
+        ghost.SetRotorInput((RotorID)i, (mask >> i) & 1, PHYSICS_DT);
+    ghost.Update(PHYSICS_DT);
+
+    if (ResolveContact(ghost).outcome != GameState::PLAYING)
+        ghostStep = g.inputs.size();
 }
 
 // ---------------------------------------------------------------------------
@@ -833,6 +880,7 @@ void Game::Draw() const {
     DrawWorld();
     if (state == GameState::PLAYING) DrawDepthCues();
     if (state != GameState::MENU) drone.Draw();
+    if (state != GameState::MENU && ghostActive) ghost.Draw(GHOST_ALPHA);
     EndMode3D();
 
     DrawOverlay();

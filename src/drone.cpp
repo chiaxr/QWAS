@@ -171,7 +171,7 @@ float Drone::GetTiltAngle() const {
 //  Rendering
 // ---------------------------------------------------------------------------
 
-void Drone::Draw() const {
+void Drone::Draw(float alpha) const {
     Matrix rotMat = QuaternionToMatrix(orientation);
     const float maxThrust = GetMaxThrust();
 
@@ -180,15 +180,15 @@ void Drone::Draw() const {
     rlMultMatrixf(MatrixToFloat(rotMat));  // macro expands to (MatrixToFloatV(mat).v)
 
     // Central body
-    DrawCube({0, 0, 0}, 0.15f, 0.06f, 0.15f, DARKGRAY);
+    DrawCube({0, 0, 0}, 0.15f, 0.06f, 0.15f, Fade(DARKGRAY, alpha));
 
     // Arms from center to each motor
     for (int i = 0; i < ROTOR_COUNT; i++)
-        DrawCylinderEx({0, 0, 0}, rotors[i].localPos, 0.012f, 0.012f, 6, GRAY);
+        DrawCylinderEx({0, 0, 0}, rotors[i].localPos, 0.012f, 0.012f, 6, Fade(GRAY, alpha));
 
     // Motor hubs
     for (int i = 0; i < ROTOR_COUNT; i++)
-        DrawSphere(rotors[i].localPos, 0.04f, rotors[i].color);
+        DrawSphere(rotors[i].localPos, 0.04f, Fade(rotors[i].color, alpha));
 
     // Rotor discs (semi-transparent, radius scales with thrust)
     BeginBlendMode(BLEND_ALPHA);
@@ -197,7 +197,7 @@ void Drone::Draw() const {
         float discR      = 0.10f + 0.10f * (r.thrust / maxThrust);
         Vector3 discBot  = {r.localPos.x, r.localPos.y - 0.005f, r.localPos.z};
         Vector3 discTop  = {r.localPos.x, r.localPos.y + 0.005f, r.localPos.z};
-        DrawCylinderEx(discBot, discTop, discR, discR, 16, Fade(r.color, 0.40f));
+        DrawCylinderEx(discBot, discTop, discR, discR, 16, Fade(r.color, 0.40f * alpha));
     }
     EndBlendMode();
 
@@ -209,7 +209,7 @@ void Drone::Draw() const {
         float ca = cosf(r.spinAngle), sa = sinf(r.spinAngle);
         Vector3 p1 = {cx + discR * ca, cy, cz + discR * sa};
         Vector3 p2 = {cx - discR * ca, cy, cz - discR * sa};
-        DrawLine3D(p1, p2, r.color);
+        DrawLine3D(p1, p2, Fade(r.color, alpha));
     }
 
     rlPopMatrix();

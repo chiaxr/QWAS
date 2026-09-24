@@ -69,8 +69,8 @@ struct Drone {
     void SetRotorInput(RotorID id, bool keyDown, float dt);
     void Update(float dt);
 
-    // 3D rendering — call inside BeginMode3D/EndMode3D
-    void Draw() const;
+    // 3D rendering — call inside BeginMode3D/EndMode3D (alpha < 1 for the ghost)
+    void Draw(float alpha = 1.0f) const;
     // 2D HUD thrust bars — call after EndMode3D
     void DrawHUDBars(int screenW, int screenH) const;
 
