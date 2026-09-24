@@ -99,6 +99,7 @@ private:
     void UpdatePlaying(float dt);
     void UpdateDead(float dt);
     void UpdateWin(float dt);
+    void UpdateEndScreen();
 
     void DrawMenu() const;
     void DrawSettings() const;
@@ -106,6 +107,7 @@ private:
     void DrawPlaying() const;
     void DrawDead() const;
     void DrawWin() const;
+    void DrawEndScreenButtons(const char* retryLabel) const;
     void ActivateMenuButton(int idx);
 
     void UpdateCamera(float dt);

@@ -150,6 +150,10 @@ const char* GetCrashHint(CrashReason reason) {
 
     return "";
 }
+static int GetEndScreenButtonsY(int screenH) {
+    return screenH / 2 + 90;
+}
+
 static Rectangle GetEndScreenButtonRect(int idx, int screenW, int btnTopY) {
     const int btnW = 280, btnH = 52, gap = 24;
     int bx = (screenW - (btnW * 2 + gap)) / 2 + idx * (btnW + gap);
@@ -604,38 +608,9 @@ void Game::UpdateDead(float dt) {
 
     if (IsKeyPressed(KEY_BACKSPACE) || IsKeyPressed(KEY_ESCAPE)) { state = GameState::MENU; return; }
 
-    if (deadTimer > 0.0f) return;
+    if (deadTimer > 0.0f) return;  // let the crash play out before offering the buttons
 
-    int sw = GetScreenWidth(), sh = GetScreenHeight();
-    int btnY = sh / 2 + 90;
-
-    // Keyboard navigation between Retry (0) and Menu (1)
-    if (IsKeyPressed(KEY_LEFT))  endScreenSelectedIdx = 0;
-    if (IsKeyPressed(KEY_RIGHT)) endScreenSelectedIdx = 1;
-
-    // Hover: mouse
-    Vector2 mp = GetMousePosition();
-    for (int i = 0; i < 2; i++)
-        if (CheckCollisionPointRec(mp, GetEndScreenButtonRect(i, sw, btnY)))
-            endScreenSelectedIdx = i;
-    // Hover: touch
-    for (int t = 0; t < GetTouchPointCount(); t++) {
-        Vector2 tp = GetTouchPosition(t);
-        for (int i = 0; i < 2; i++)
-            if (CheckCollisionPointRec(tp, GetEndScreenButtonRect(i, sw, btnY)))
-                endScreenSelectedIdx = i;
-    }
-
-    auto activateEnd = [&](int idx) {
-        if (idx == 0) { Reset(); state = GameState::PLAYING; }
-        else          { state = GameState::MENU; }
-    };
-
-    if (IsKeyPressed(KEY_R))                                    { activateEnd(0); return; }
-    if (IsKeyPressed(KEY_ENTER) || IsKeyPressed(KEY_SPACE))     { activateEnd(endScreenSelectedIdx); return; }
-
-    for (int i = 0; i < 2; i++)
-        if (TappedIn(GetEndScreenButtonRect(i, sw, btnY))) { activateEnd(i); return; }
+    UpdateEndScreen();
 }
 
 void Game::UpdateWin(float dt) {
@@ -643,8 +618,13 @@ void Game::UpdateWin(float dt) {
 
     if (IsKeyPressed(KEY_BACKSPACE) || IsKeyPressed(KEY_ESCAPE)) { state = GameState::MENU; return; }
 
+    UpdateEndScreen();
+}
+
+// Retry (0) / Return to menu (1) buttons shared by the DEAD and WIN screens
+void Game::UpdateEndScreen() {
     int sw = GetScreenWidth(), sh = GetScreenHeight();
-    int btnY = sh / 2 + 90;
+    int btnY = GetEndScreenButtonsY(sh);
 
     // Keyboard navigation between Retry (0) and Menu (1)
     if (IsKeyPressed(KEY_LEFT))  endScreenSelectedIdx = 0;
@@ -1059,6 +1039,16 @@ void Game::DrawPlaying() const {
         DrawText("Easy mode", sx, sy + 156, 20, WHITE);
 }
 
+// Retry / Return to menu buttons and hint shared by the DEAD and WIN screens
+void Game::DrawEndScreenButtons(const char* retryLabel) const {
+    int sw = GetScreenWidth(), sh = GetScreenHeight();
+    int btnY = GetEndScreenButtonsY(sh);
+    DrawMenuButton(retryLabel,        GetEndScreenButtonRect(0, sw, btnY), endScreenSelectedIdx == 0);
+    DrawMenuButton("RETURN TO MENU",  GetEndScreenButtonRect(1, sw, btnY), endScreenSelectedIdx == 1);
+    DrawCenteredText("Left/Right to navigate  |  Enter or click to select",
+                     btnY + 66, 14, {100, 100, 100, 255});
+}
+
 void Game::DrawDead() const {
     int sw = GetScreenWidth(), sh = GetScreenHeight();
     drone.DrawHUDBars(sw, sh);
@@ -1071,11 +1061,7 @@ void Game::DrawDead() const {
 
         DrawCenteredText(TextFormat("Progress: %.0f%%", runProgress), sh / 2, 30, WHITE);
 
-        int btnY = sh / 2 + 90;
-        DrawMenuButton("RETRY",           GetEndScreenButtonRect(0, sw, btnY), endScreenSelectedIdx == 0);
-        DrawMenuButton("RETURN TO MENU",  GetEndScreenButtonRect(1, sw, btnY), endScreenSelectedIdx == 1);
-        DrawCenteredText("Left/Right to navigate  |  Enter or click to select",
-                         btnY + 66, 14, {100, 100, 100, 255});
+        DrawEndScreenButtons("RETRY");
     }
 }
 
@@ -1116,11 +1102,7 @@ void Game::DrawWin() const {
     if (difficulty == Difficulty::EASY) timeLine = TextFormat("%s  -  Easy mode", timeLine);
     DrawCenteredText(timeLine, sh / 2 + 58, 20, newBestTime ? GOLD : LIGHTGRAY);
 
-    int btnY = sh / 2 + 90;
-    DrawMenuButton("FLY AGAIN",       GetEndScreenButtonRect(0, sw, btnY), endScreenSelectedIdx == 0);
-    DrawMenuButton("RETURN TO MENU",  GetEndScreenButtonRect(1, sw, btnY), endScreenSelectedIdx == 1);
-    DrawCenteredText("Left/Right to navigate  |  Enter or click to select",
-                     btnY + 66, 14, {100, 100, 100, 255});
+    DrawEndScreenButtons("FLY AGAIN");
 
     drone.DrawHUDBars(sw, sh);
 }
