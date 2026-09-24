@@ -294,9 +294,6 @@ InstructionsLayout GetInstructionsLayout(int screenW, int screenH) {
 // ---------------------------------------------------------------------------
 
 void Game::Init() {
-    screenWidth  = 1280;
-    screenHeight = 720;
-
     startPad.position = {0, 0, 0};
     startPad.halfSize = 1.0f;
     pad.position      = {0, 0, PAD_WORLD_Z};
@@ -518,7 +515,7 @@ void Game::UpdateSettings() {
     if (IsKeyDown(KEY_RIGHT)) *ke.val = fminf(ke.maxV, *ke.val + ke.step);
 
     // Pointer (mouse/touch) handling for sliders
-    SettingsLayout L = GetSettingsLayout(screenWidth, screenHeight);
+    SettingsLayout L = GetSettingsLayout(GetScreenWidth(), GetScreenHeight());
     bool pointerDown = IsPrimaryPointerDown();
 
     if (draggingSlider) {
@@ -1132,8 +1129,9 @@ void Game::DrawWin() const {
 }
 
 void Game::DrawSettings() const {
-    SettingsLayout L = GetSettingsLayout(screenWidth, screenHeight);
-    DrawDialogPanel(L.bx, L.by, L.bw, L.bh, screenWidth, screenHeight, "PHYSICS SETTINGS");
+    int sw = GetScreenWidth(), sh = GetScreenHeight();
+    SettingsLayout L = GetSettingsLayout(sw, sh);
+    DrawDialogPanel(L.bx, L.by, L.bw, L.bh, sw, sh, "PHYSICS SETTINGS");
 
     int labelX = L.bx + 20;
     int valueX = L.bx + L.bw - 120;

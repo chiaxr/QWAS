@@ -50,8 +50,6 @@ struct GhostRun {
 };
 
 struct Game {
-    int        screenWidth;
-    int        screenHeight;
     GameState  state;
     Difficulty difficulty;
     CrashReason crashReason;
