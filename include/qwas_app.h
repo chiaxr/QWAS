@@ -7,6 +7,7 @@ public:
     void Init();
     void Frame();
     void Shutdown();
+    void SaveProgress() const;
     void SetPaused(bool paused);
 
 private:

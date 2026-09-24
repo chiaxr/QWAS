@@ -97,6 +97,7 @@ struct Game {
     void Reset();
     void Update(float dt);
     void Draw() const;
+    void SaveProgress() const;  // persist bests, difficulty and settings (also called on quit)
 
 private:
     void UpdateMenu();
@@ -131,7 +132,6 @@ private:
     void UpdateTap();
     bool TappedIn(Rectangle rect) const;
     void LoadProgress();
-    void SaveProgress() const;
     float& BestScore()       { return bestScores[(int)difficulty]; }
     float  BestScore() const { return bestScores[(int)difficulty]; }
 };

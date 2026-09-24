@@ -26,7 +26,12 @@ void QwasApp::Frame() {
 }
 
 void QwasApp::Shutdown() {
+    game.SaveProgress();  // keep mid-run bests and unsaved settings when the window is closed
     CloseWindow();
+}
+
+void QwasApp::SaveProgress() const {
+    game.SaveProgress();
 }
 
 void QwasApp::SetPaused(bool isPaused) {
