@@ -786,8 +786,11 @@ Game::ContactResult Game::ResolveContact(Drone& d) const {
         if (d.GetRotorWorldPos((RotorID)i).y < 0.0f)
             return {GameState::DEAD, CrashReason::ROTOR_STRIKE};
     if (d.position.y < 0.0f)            return {GameState::DEAD, CrashReason::GROUND_IMPACT};
-    if (d.position.y > 15.0f)           return {GameState::DEAD, CrashReason::TOO_HIGH};
-    if (fabsf(d.position.x) > 20.0f)    return {GameState::DEAD, CrashReason::OUT_OF_BOUNDS};
+    if (d.position.y > MAX_ALTITUDE)    return {GameState::DEAD, CrashReason::TOO_HIGH};
+    if (fabsf(d.position.x) > BOUNDS_HALF_WIDTH ||
+        d.position.z > startPad.position.z + BOUNDS_BEHIND ||
+        d.position.z < pad.position.z - BOUNDS_PAST_PAD)
+        return {GameState::DEAD, CrashReason::OUT_OF_BOUNDS};
 
     return {GameState::PLAYING, CrashReason::NONE};
 }

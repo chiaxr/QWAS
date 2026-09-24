@@ -20,6 +20,12 @@ constexpr float GROUND_REST_Y = 0.03f;  // drone center when resting level on th
 // Progress while flying is capped here; 99.999% (landed) and 100% (perfect landing) come only from a WIN
 constexpr float MAX_FLIGHT_PROGRESS = 99.0f;
 
+// Flight area: leaving it crashes the run (TOO_HIGH / OUT_OF_BOUNDS)
+constexpr float MAX_ALTITUDE      = 15.0f;  // m
+constexpr float BOUNDS_HALF_WIDTH = 20.0f;  // max sideways distance |x|
+constexpr float BOUNDS_BEHIND     = 10.0f;  // max distance behind the start pad (+z)
+constexpr float BOUNDS_PAST_PAD   = 10.0f;  // max distance past the landing pad (-z)
+
 // Easy mode: touching the grass below both limits is a landing, not a crash
 constexpr float EASY_SAFE_TOUCHDOWN_SPEED = 3.0f;   // m/s
 constexpr float EASY_SAFE_TOUCHDOWN_TILT  = 20.0f;  // degrees (keeps rotors clear of the grass at default arm length)
