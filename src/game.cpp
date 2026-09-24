@@ -723,10 +723,7 @@ float Game::ProgressAt(Vector3 position) const {
 // whether it is still flying, has landed on the destination pad, or crashed.
 Game::ContactResult Game::ResolveContact(Drone& d) const {
     // --- Starting pad: ground contact here is never a crash ---
-    bool onStartPad = fabsf(d.position.x - startPad.position.x) < startPad.halfSize &&
-                      fabsf(d.position.z - startPad.position.z) < startPad.halfSize;
-
-    if (onStartPad) {
+    if (startPad.Covers(d.position)) {
         // Detect contact: drone sinking into the pad surface
         if (d.position.y < DRONE_REST_Y)
             ApplyGroundContact(d, DRONE_REST_Y);
@@ -734,10 +731,7 @@ Game::ContactResult Game::ResolveContact(Drone& d) const {
     }
 
     // --- Destination pad: win check (before crash checks) ---
-    bool reachedPad = fabsf(d.position.x - pad.position.x) < pad.halfSize &&
-                      fabsf(d.position.z - pad.position.z) < pad.halfSize &&
-                      d.position.y < DRONE_REST_Y + 0.5f;
-    if (reachedPad)
+    if (pad.Covers(d.position) && d.position.y < DRONE_REST_Y + 0.5f)
         return {GameState::WIN, CrashReason::NONE};
 
     // --- Easy mode: gentle touchdowns on the grass are safe ---
@@ -927,11 +921,7 @@ void Game::DrawWorld() const {
 // Height/position cue for the chase camera: a shadow on the surface directly
 // below the drone that shrinks and fades with altitude.
 void Game::DrawDepthCues() const {
-    auto over = [&](const LandingPad& p) {
-        return fabsf(drone.position.x - p.position.x) < p.halfSize &&
-               fabsf(drone.position.z - p.position.z) < p.halfSize;
-    };
-    float surfaceY = (over(pad) || over(startPad)) ? PAD_TOP_Y : 0.0f;
+    float surfaceY = (pad.Covers(drone.position) || startPad.Covers(drone.position)) ? PAD_TOP_Y : 0.0f;
     float height = fmaxf(0.0f, drone.position.y - surfaceY);
 
     constexpr float fadeHeight = 12.0f;  // shadow is smallest/faintest at this height

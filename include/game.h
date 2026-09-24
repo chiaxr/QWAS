@@ -1,6 +1,7 @@
 #pragma once
 #include "raylib.h"
 #include "drone.h"
+#include <cmath>
 #include <cstdint>
 #include <vector>
 
@@ -38,6 +39,11 @@ enum class CrashReason { NONE, ROTOR_STRIKE, GROUND_IMPACT, TOO_HIGH, OUT_OF_BOU
 struct LandingPad {
     Vector3 position;  // center
     float   halfSize;  // half-width of square pad
+
+    // True if pos is directly above (or below) the pad's square footprint
+    bool Covers(Vector3 pos) const {
+        return fabsf(pos.x - position.x) < halfSize && fabsf(pos.z - position.z) < halfSize;
+    }
 };
 
 // A recorded landing that can be replayed exactly (physics is deterministic)
