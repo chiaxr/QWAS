@@ -273,13 +273,18 @@ SettingsLayout GetSettingsLayout(int screenW, int screenH) {
     return { bx, by, bw, bh, bx + 290, 300 };
 }
 
+// Top of settings row idx (rows start below the panel title)
+int GetSettingsRowY(const SettingsLayout& L, int idx) {
+    return L.by + 54 + idx * SETTINGS_ROW_H;
+}
+
 Rectangle GetSettingsRowRect(const SettingsLayout& L, int idx) {
-    int ry = L.by + 54 + idx * SETTINGS_ROW_H;
+    int ry = GetSettingsRowY(L, idx);
     return { (float)(L.bx + 2), (float)ry, (float)(L.bw - 4), (float)(SETTINGS_ROW_H - 2) };
 }
 
 Rectangle GetSettingsSliderHitRect(const SettingsLayout& L, int idx) {
-    int ry = L.by + 54 + idx * SETTINGS_ROW_H;
+    int ry = GetSettingsRowY(L, idx);
     return { (float)L.sliderX, (float)ry, (float)L.sliderW, (float)SETTINGS_ROW_H };
 }
 
@@ -1106,7 +1111,7 @@ void Game::DrawSettings() const {
     int valueX = L.bx + L.bw - 120;
 
     for (int i = 0; i < SETTINGS_COUNT; i++) {
-        int ry = L.by + 54 + i * SETTINGS_ROW_H;
+        int ry = GetSettingsRowY(L, i);
         const SettingsEntry& e = kSettingsEntries[i];
 
         if (i == settingsSelectedIdx)
