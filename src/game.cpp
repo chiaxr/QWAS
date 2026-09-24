@@ -2,9 +2,51 @@
 #include "raymath.h"
 #include <cmath>
 
+#if defined(__EMSCRIPTEN__)
+#include <emscripten/emscripten.h>
+
+// Browsers can deliver a press and its release between two frames (quick
+// touch taps, trackpad tap-to-click). raylib only samples the current button
+// state once per frame, so such a press would never be seen. Latch every
+// canvas pointerdown (mouse, touch or pen) in screen coordinates so the next
+// frame can treat the pointer as pressed at least once.
+EM_JS(int, qwas_web_take_pointer_press, (float* x, float* y), {
+    var canvas = Module.canvas;
+    if (!canvas) return 0;
+    if (!Module.__qwasPressListener) {
+        Module.__qwasPressListener = true;
+        canvas.addEventListener('pointerdown', function(e) {
+            var r = canvas.getBoundingClientRect();
+            if (r.width <= 0 || r.height <= 0) return;
+            Module.__qwasPress = {
+                x: (e.clientX - r.left) * canvas.width  / r.width,
+                y: (e.clientY - r.top)  * canvas.height / r.height
+            };
+        }, true);
+    }
+    var p = Module.__qwasPress;
+    if (!p) return 0;
+    Module.__qwasPress = null;
+    HEAPF32[x >> 2] = p.x;
+    HEAPF32[y >> 2] = p.y;
+    return 1;
+});
+#endif
+
 namespace {
 constexpr float TOUCH_GUIDE_FADE_SPEED = 1.8f;
 constexpr float TAP_MAX_MOVE = 28.0f;
+
+enum MenuItem { MENU_START, MENU_MODE, MENU_SETTINGS, MENU_INSTRUCTIONS, MENU_COUNT };
+
+// Ground reaction: rest at restY, kill downward velocity, and damp tilt
+// (simulates contact friction)
+void ApplyGroundContact(Drone& drone, float restY) {
+    drone.position.y = restY;
+    if (drone.velocity.y < 0.0f) drone.velocity.y = 0.0f;
+    drone.angularVel.x *= 0.85f;
+    drone.angularVel.z *= 0.85f;
+}
 
 Rectangle GetRotorTouchZone(RotorID id, int screenW, int screenH) {
     float zoneW = screenW * 0.5f;
@@ -41,6 +83,17 @@ bool IsRotorTouchDown(RotorID id, int screenW, int screenH) {
 
 bool IsPrimaryPointerDown() {
     return IsMouseButtonDown(MOUSE_BUTTON_LEFT) || GetTouchPointCount() > 0;
+}
+
+// True if a press happened since the last call that raylib may have missed
+// (web only; desktop relies on raylib's per-frame button state).
+bool TakeLatchedPointerPress(Vector2* pos) {
+#if defined(__EMSCRIPTEN__)
+    return qwas_web_take_pointer_press(&pos->x, &pos->y) != 0;
+#else
+    (void)pos;
+    return false;
+#endif
 }
 
 Vector2 GetPrimaryPointerPosition() {
@@ -103,17 +156,51 @@ static Rectangle GetMenuButtonRect(int idx, int screenW, int screenH) {
     return {(float)btnX, (float)btnY, (float)btnW, (float)btnH};
 }
 
-static void DrawMenuButton(const char* label, Rectangle rect, bool selected) {
+// Shared look for menu buttons and the difficulty switch
+static void DrawMenuButtonFrame(Rectangle rect, bool selected) {
     Color bg     = selected ? Color{45, 75, 45, 230} : Color{15, 15, 15, 210};
     Color border = selected ? Color{100, 200, 100, 255} : Color{55, 55, 55, 200};
     DrawRectangleRec(rect, bg);
     DrawRectangleLinesEx(rect, 2.0f, border);
+}
+
+static Color MenuButtonTextColor(bool selected) {
+    return selected ? WHITE : Color{200, 200, 200, 255};
+}
+
+static void DrawMenuButton(const char* label, Rectangle rect, bool selected) {
+    DrawMenuButtonFrame(rect, selected);
     const int fs = 26;
     int tw = MeasureText(label, fs);
     DrawText(label,
              (int)(rect.x + (rect.width  - tw) * 0.5f),
              (int)(rect.y + (rect.height - fs) * 0.5f),
-             fs, selected ? WHITE : Color{200, 200, 200, 255});
+             fs, MenuButtonTextColor(selected));
+}
+
+// Difficulty switch on the menu: a slide switch filling the whole menu-button
+// rect, styled like the other buttons. The active label shows in the uncovered
+// half and a flat grey block covers the other half. t is the block position
+// (0 = EASY: "EASY" on the left, block on the right;
+//  1 = HARD: block on the left, "HARD" on the right).
+// The whole rect is the click/tap target.
+static void DrawDifficultySwitch(Rectangle rect, bool selected, float t) {
+    DrawMenuButtonFrame(rect, selected);
+
+    // Labels centered in each half; the block slides over the inactive one
+    const int fs = 26;
+    float halfW = rect.width * 0.5f;
+    float textY = rect.y + (rect.height - fs) * 0.5f;
+    Color textCol = MenuButtonTextColor(selected);
+    const char* left  = "EASY";
+    const char* right = "HARD";
+    DrawText(left,  (int)(rect.x + (halfW - MeasureText(left, fs)) * 0.5f), (int)textY, fs, textCol);
+    DrawText(right, (int)(rect.x + halfW + (halfW - MeasureText(right, fs)) * 0.5f), (int)textY, fs, textCol);
+
+    const float inset = 6.0f;
+    Rectangle block = {rect.x + inset + (1.0f - t) * halfW, rect.y + inset,
+                       halfW - 2.0f * inset, rect.height - 2.0f * inset};
+    DrawRectangleRec(block, {110, 110, 110, 255});
 }
 
 struct SettingsEntry {
@@ -207,7 +294,9 @@ void Game::Init() {
     startPad.halfSize = 1.0f;
     pad.position      = {0, 0, PAD_WORLD_Z};
     pad.halfSize      = 1.0f;
-    bestScore         = 0;
+    bestScores[(int)Difficulty::HARD]   = 0;
+    bestScores[(int)Difficulty::EASY]   = 0;
+    perfectLanding    = false;
 
     camera.fovy       = CAMERA_FOV;
     camera.projection = CAMERA_PERSPECTIVE;
@@ -218,8 +307,9 @@ void Game::Init() {
     camera.target   = {0, DRONE_REST_Y, 0};
 
     state = GameState::MENU;
+    difficulty = Difficulty::EASY;
     crashReason = CrashReason::NONE;
-    drone.Init({0, DRONE_REST_Y, 0});
+    drone.Init({0, DRONE_REST_Y, 0}, difficulty == Difficulty::EASY);
     deadTimer = 0;
     winTimer  = 0;
     settingsSelectedIdx = 0;
@@ -231,12 +321,16 @@ void Game::Init() {
     touchGuideDismissed = false;
     tapWasDown = false;
     tapCandidate = false;
+    tapCompleted = false;
+    tapStartState = state;
     tapStart = {0, 0};
+    modeSwitchT = (difficulty == Difficulty::HARD) ? 1.0f : 0.0f;
 }
 
 void Game::Reset() {
-    drone.Init({0, DRONE_REST_Y, 0});
+    drone.Init({0, DRONE_REST_Y, 0}, difficulty == Difficulty::EASY);
     crashReason = CrashReason::NONE;
+    perfectLanding = false;
     deadTimer = 0;
     winTimer  = 0;
     touchGuideAlpha = 1.0f;
@@ -256,6 +350,11 @@ void Game::Reset() {
 // ---------------------------------------------------------------------------
 
 void Game::Update(float dt) {
+    UpdateTap();
+
+    float modeTarget = (difficulty == Difficulty::HARD) ? 1.0f : 0.0f;
+    modeSwitchT += (modeTarget - modeSwitchT) * fminf(1.0f, 14.0f * dt);
+
     switch (state) {
         case GameState::MENU:           UpdateMenu();         break;
         case GameState::SETTINGS:       UpdateSettings();     break;
@@ -267,7 +366,6 @@ void Game::Update(float dt) {
 }
 
 void Game::UpdateMenu() {
-    constexpr int MENU_COUNT = 3;
     int sw = GetScreenWidth(), sh = GetScreenHeight();
 
     // Keyboard navigation
@@ -289,45 +387,43 @@ void Game::UpdateMenu() {
         }
     }
 
+    // Left/Right set the difficulty switch directly when it is selected
+    if (menuSelectedIdx == MENU_MODE) {
+        if (IsKeyPressed(KEY_LEFT))  difficulty = Difficulty::EASY;
+        if (IsKeyPressed(KEY_RIGHT)) difficulty = Difficulty::HARD;
+    }
+
     // Activate via keyboard Enter / Space
     if (IsKeyPressed(KEY_ENTER) || IsKeyPressed(KEY_SPACE)) {
         ActivateMenuButton(menuSelectedIdx);
         return;
     }
 
-    // Activate via mouse click
-    if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
-        for (int i = 0; i < MENU_COUNT; i++) {
-            if (CheckCollisionPointRec(mp, GetMenuButtonRect(i, sw, sh))) {
-                ActivateMenuButton(i);
-                return;
-            }
-        }
-    }
-
-    // Activate via touch tap
-    if (ConsumeCompletedTap()) {
-        for (int i = 0; i < MENU_COUNT; i++) {
-            if (CheckCollisionPointRec(tapStart, GetMenuButtonRect(i, sw, sh))) {
-                ActivateMenuButton(i);
-                return;
-            }
+    // Activate via mouse click or touch tap
+    for (int i = 0; i < MENU_COUNT; i++) {
+        if (TappedIn(GetMenuButtonRect(i, sw, sh))) {
+            menuSelectedIdx = i;
+            ActivateMenuButton(i);
+            return;
         }
     }
 }
 
 void Game::ActivateMenuButton(int idx) {
     switch (idx) {
-        case 0: Reset(); endScreenSelectedIdx = 0; state = GameState::PLAYING; break;
-        case 1: settingsSelectedIdx = 0; draggingSlider = false; state = GameState::SETTINGS; break;
-        case 2: state = GameState::INSTRUCTIONS; break;
+        case MENU_START:        Reset(); endScreenSelectedIdx = 0; state = GameState::PLAYING; break;
+        case MENU_MODE:
+            difficulty = (difficulty == Difficulty::EASY) ? Difficulty::HARD : Difficulty::EASY;
+            break;
+        case MENU_SETTINGS:     settingsSelectedIdx = 0; draggingSlider = false; state = GameState::SETTINGS; break;
+        case MENU_INSTRUCTIONS: state = GameState::INSTRUCTIONS; break;
     }
 }
 
 void Game::UpdateSettings() {
     auto exitToMenu = [&] {
         draggingSlider = false;
-        menuSelectedIdx = 1;
+        menuSelectedIdx = MENU_SETTINGS;
         state = GameState::MENU;
     };
 
@@ -378,18 +474,13 @@ void Game::UpdateSettings() {
     // Back button (discrete — skip while a slider drag is in progress)
     if (!draggingSlider) {
         Rectangle backRect = GetDialogBackButtonRect(L.bx, L.by, L.bw, L.bh);
-        if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT) && CheckCollisionPointRec(GetMousePosition(), backRect)) {
-            exitToMenu(); return;
-        }
-        if (ConsumeCompletedTap() && CheckCollisionPointRec(tapStart, backRect)) {
-            exitToMenu(); return;
-        }
+        if (TappedIn(backRect)) { exitToMenu(); return; }
     }
 }
 
 void Game::UpdateInstructions() {
     if (IsKeyPressed(KEY_BACKSPACE) || IsKeyPressed(KEY_ESCAPE)) {
-        menuSelectedIdx = 2;
+        menuSelectedIdx = MENU_INSTRUCTIONS;
         state = GameState::MENU;
         return;
     }
@@ -397,13 +488,8 @@ void Game::UpdateInstructions() {
     InstructionsLayout L = GetInstructionsLayout(GetScreenWidth(), GetScreenHeight());
     Rectangle backRect = GetDialogBackButtonRect(L.bx, L.by, L.bw, L.bh);
 
-    if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT) && CheckCollisionPointRec(GetMousePosition(), backRect)) {
-        menuSelectedIdx = 2;
-        state = GameState::MENU;
-        return;
-    }
-    if (ConsumeCompletedTap() && CheckCollisionPointRec(tapStart, backRect)) {
-        menuSelectedIdx = 2;
+    if (TappedIn(backRect)) {
+        menuSelectedIdx = MENU_INSTRUCTIONS;
         state = GameState::MENU;
     }
 }
@@ -436,7 +522,7 @@ void Game::UpdatePlaying(float dt) {
     CheckGameStatus();
 
     float progress = fminf(drone.distanceTraveled / fabsf(PAD_WORLD_Z) * 100.0f, 100.0f);
-    if (progress > bestScore) bestScore = progress;
+    if (progress > BestScore()) BestScore() = progress;
 }
 
 void Game::UpdateDead(float dt) {
@@ -474,14 +560,8 @@ void Game::UpdateDead(float dt) {
     if (IsKeyPressed(KEY_R))                                    { activateEnd(0); return; }
     if (IsKeyPressed(KEY_ENTER) || IsKeyPressed(KEY_SPACE))     { activateEnd(endScreenSelectedIdx); return; }
 
-    if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
-        for (int i = 0; i < 2; i++)
-            if (CheckCollisionPointRec(mp, GetEndScreenButtonRect(i, sw, btnY))) { activateEnd(i); return; }
-    }
-    if (ConsumeCompletedTap()) {
-        for (int i = 0; i < 2; i++)
-            if (CheckCollisionPointRec(tapStart, GetEndScreenButtonRect(i, sw, btnY))) { activateEnd(i); return; }
-    }
+    for (int i = 0; i < 2; i++)
+        if (TappedIn(GetEndScreenButtonRect(i, sw, btnY))) { activateEnd(i); return; }
 }
 
 void Game::UpdateWin(float dt) {
@@ -517,38 +597,40 @@ void Game::UpdateWin(float dt) {
     if (IsKeyPressed(KEY_R))                                    { activateEnd(0); return; }
     if (IsKeyPressed(KEY_ENTER) || IsKeyPressed(KEY_SPACE))     { activateEnd(endScreenSelectedIdx); return; }
 
-    if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
-        for (int i = 0; i < 2; i++)
-            if (CheckCollisionPointRec(mp, GetEndScreenButtonRect(i, sw, btnY))) { activateEnd(i); return; }
-    }
-    if (ConsumeCompletedTap()) {
-        for (int i = 0; i < 2; i++)
-            if (CheckCollisionPointRec(tapStart, GetEndScreenButtonRect(i, sw, btnY))) { activateEnd(i); return; }
-    }
+    for (int i = 0; i < 2; i++)
+        if (TappedIn(GetEndScreenButtonRect(i, sw, btnY))) { activateEnd(i); return; }
 }
 
-bool Game::ConsumeCompletedTap() {
-    bool pointerDown = IsPrimaryPointerDown();
-    bool completedTap = false;
+// Tracks one press/release of the primary pointer (mouse or first touch) per
+// frame. Called once at the top of Update so every screen sees the same tap,
+// and each tap activates exactly one button: on release, where it started,
+// and only on the screen it started on (a press on one screen can't click a
+// button on the next).
+void Game::UpdateTap() {
+    Vector2 pressPosition;
+    bool latchedPress = TakeLatchedPointerPress(&pressPosition);
+    bool pointerDown = IsPrimaryPointerDown() || latchedPress;
+    tapCompleted = false;
 
     if (pointerDown) {
-        Vector2 pointerPosition = GetPrimaryPointerPosition();
+        Vector2 pointerPosition = latchedPress ? pressPosition : GetPrimaryPointerPosition();
         if (!tapWasDown) {
             tapCandidate = true;
             tapStart = pointerPosition;
+            tapStartState = state;
         } else if (tapCandidate && Vector2Distance(tapStart, pointerPosition) > TAP_MAX_MOVE) {
             tapCandidate = false;
         }
     } else if (tapWasDown && tapCandidate) {
-        completedTap = true;
+        tapCompleted = (tapStartState == state);
         tapCandidate = false;
     }
 
     tapWasDown = pointerDown;
-    if (!pointerDown)
-        tapCandidate = false;
+}
 
-    return completedTap || IsGestureDetected(GESTURE_TAP);
+bool Game::TappedIn(Rectangle rect) const {
+    return tapCompleted && CheckCollisionPointRec(tapStart, rect);
 }
 
 void Game::UpdateCamera(float dt) {
@@ -582,14 +664,8 @@ void Game::CheckGameStatus() {
         // Detect contact: drone sinking into the pad surface
         bool grounded = drone.position.y < DRONE_REST_Y;
 
-        if (grounded) {
-            // Ground reaction: push back up and kill downward velocity
-            drone.position.y = DRONE_REST_Y;
-            if (drone.velocity.y < 0.0f) drone.velocity.y = 0.0f;
-            // Heavy angular damping while on the pad (simulates contact friction)
-            drone.angularVel.x *= 0.85f;
-            drone.angularVel.z *= 0.85f;
-        }
+        if (grounded)
+            ApplyGroundContact(drone, DRONE_REST_Y);
         return;  // never crash while on the starting pad
     }
 
@@ -598,19 +674,31 @@ void Game::CheckGameStatus() {
                    fabsf(drone.position.z - pad.position.z) < pad.halfSize &&
                    drone.position.y < DRONE_REST_Y + 0.5f;
     if (reachedPad) {
-        state     = GameState::WIN;
-        bestScore = 99.999f;
+        state = GameState::WIN;
 
         // Perfect win - only if drone lands gently and level
         constexpr float perfectLandSpeed = 2.0f;
         constexpr float perfectLandAngle = 20.0f;
         float speed = Vector3Length(drone.velocity);
-        bool perfectWin = speed < perfectLandSpeed && drone.GetTiltAngle() < perfectLandAngle;
-        if (perfectWin) {
-            bestScore = 100.0f;
-        }
+        perfectLanding = speed < perfectLandSpeed && drone.GetTiltAngle() < perfectLandAngle;
+        BestScore() = fmaxf(BestScore(), perfectLanding ? 100.0f : 99.999f);
 
         return;
+    }
+
+    // --- Easy mode: gentle touchdowns on the grass are safe ---
+    if (difficulty == Difficulty::EASY) {
+        // Lowest center height that keeps the body and every rotor above the grass
+        float restY = GROUND_REST_Y;
+        for (int i = 0; i < ROTOR_COUNT; i++)
+            restY = fmaxf(restY, drone.position.y - drone.GetRotorWorldPos((RotorID)i).y);
+
+        bool gentle = Vector3Length(drone.velocity) < EASY_SAFE_TOUCHDOWN_SPEED &&
+                      drone.GetTiltAngle() < EASY_SAFE_TOUCHDOWN_TILT;
+        if (drone.position.y < restY && gentle) {
+            ApplyGroundContact(drone, restY);
+            return;
+        }
     }
 
     // --- Normal crash checks (only when away from both pads) ---
@@ -764,9 +852,13 @@ void Game::DrawMenu() const {
     DrawText(sub, (sw - stw) / 2, ty + titleSize + 12, subSize, {180, 180, 180, 255});
 
     // Menu buttons
-    const char* labels[] = {"START", "SETTINGS", "INSTRUCTIONS"};
-    for (int i = 0; i < 3; i++)
-        DrawMenuButton(labels[i], GetMenuButtonRect(i, sw, sh), i == menuSelectedIdx);
+    const char* labels[MENU_COUNT] = {"START", nullptr, "SETTINGS", "INSTRUCTIONS"};
+    for (int i = 0; i < MENU_COUNT; i++) {
+        if (i == MENU_MODE)
+            DrawDifficultySwitch(GetMenuButtonRect(i, sw, sh), i == menuSelectedIdx, modeSwitchT);
+        else
+            DrawMenuButton(labels[i], GetMenuButtonRect(i, sw, sh), i == menuSelectedIdx);
+    }
 
     DrawCenteredText("Arrow keys to navigate  |  Enter or click to select",
                      sh - 28, 14, {100, 100, 100, 255});
@@ -791,12 +883,15 @@ void Game::DrawPlaying() const {
     DrawText(TextFormat("Speed:  %.1f m/s",  Vector3Length(drone.velocity)),    sx, sy + 26, 20, WHITE);
     DrawText(TextFormat("Progress: %.0f%%",
         fminf(drone.distanceTraveled / fabsf(PAD_WORLD_Z) * 100.0f, 100.0f)), sx, sy + 52, 20, YELLOW);
-    if (bestScore > 0)
-        DrawText(TextFormat("Best:   %.0f%%", bestScore), sx, sy + 78, 20, GREEN);
+    if (BestScore() > 0)
+        DrawText(TextFormat("Best:   %.0f%%", BestScore()), sx, sy + 78, 20, GREEN);
 
     float tilt = drone.GetTiltAngle();
     Color tc   = tilt < 15 ? GREEN : (tilt < 35 ? YELLOW : RED);
     DrawText(TextFormat("Tilt:     %.0f°",  tilt), sx, sy + 104, 20, tc);
+
+    if (difficulty == Difficulty::EASY)
+        DrawText("Easy mode", sx, sy + 130, 20, WHITE);
 }
 
 void Game::DrawDead() const {
@@ -839,7 +934,7 @@ void Game::DrawWin() const {
 
     // Pulsing title
     int titleSize = (int)(80 * (1.0f + 0.07f * sinf(winTimer * 5.0f)));
-    if (bestScore < 100.0f)
+    if (!perfectLanding)
     {
         DrawCenteredText("\"LANDED\"",              sh / 2 - 100, titleSize, GREEN);
         DrawCenteredText("Progress:  99.999%",  sh / 2 - 10,  30, WHITE);
@@ -851,6 +946,8 @@ void Game::DrawWin() const {
         DrawCenteredText("Progress:  100%",  sh / 2 - 10,  30, WHITE);
         DrawCenteredText("Perfect landing!",    sh / 2 + 30,  24, GOLD);
     }
+    if (difficulty == Difficulty::EASY)
+        DrawCenteredText("Easy mode", sh / 2 + 60, 18, LIGHTGRAY);
 
     int btnY = sh / 2 + 90;
     DrawMenuButton("FLY AGAIN",       GetEndScreenButtonRect(0, sw, btnY), endScreenSelectedIdx == 0);
@@ -952,6 +1049,13 @@ void Game::DrawInstructions() const {
     DrawText("The drone tilts toward whichever rotors are spinning harder.", lx, y, 17, WHITE);
     y += 20;
     DrawText("Use Settings to adjust physics constants.", lx, y, 17, WHITE);
+    y += 34;
+
+    DrawText("Easy Mode  (switch on the menu)", lx, y, 20, YELLOW);
+    y += 26;
+    DrawText("The drone levels itself. Releasing all rotors drops it fast.", lx, y, 17, WHITE);
+    y += 20;
+    DrawText("Slow, level touchdowns on the grass are safe.", lx, y, 17, WHITE);
 
     DrawDialogFooter(bx, by, bw, bh, "Back or Backspace/Escape to exit");
 }

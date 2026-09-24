@@ -2,13 +2,14 @@
 #include "rlgl.h"
 #include <cmath>
 
-void Drone::Init(Vector3 spawnPos) {
+void Drone::Init(Vector3 spawnPos, bool assistedFlight) {
     position     = spawnPos;
     velocity     = {0, 0, 0};
     orientation  = QuaternionIdentity();
     angularVel   = {0, 0, 0};
     alive        = true;
     distanceTraveled = 0;
+    assisted     = assistedFlight;
 
     const Color colors[ROTOR_COUNT] = {RED, BLUE, GREEN, YELLOW};
     const Vector3 localPositions[ROTOR_COUNT] = {
@@ -26,12 +27,25 @@ void Drone::Init(Vector3 spawnPos) {
     }
 }
 
+float Drone::GetMaxThrust() const {
+    float hover = DRONE_MASS * GRAVITY / ROTOR_COUNT;
+    if (!assisted || hover <= 0.0f) return MAX_THRUST;  // ratios are meaningless in zero-g
+    return fminf(EASY_MAX_THRUST_RATIO * hover, MAX_THRUST);
+}
+
+float Drone::GetIdleThrust() const {
+    if (!assisted) return 0.0f;
+    float hover = DRONE_MASS * GRAVITY / ROTOR_COUNT;
+    return fminf(EASY_IDLE_THRUST_RATIO * hover, GetMaxThrust());
+}
+
 void Drone::SetRotorInput(RotorID id, bool keyDown, float dt) {
     float& T = rotors[id].thrust;
-    if (keyDown)
-        T = fminf(T + THRUST_RAMP_UP * dt, MAX_THRUST);
+    float target = keyDown ? GetMaxThrust() : GetIdleThrust();
+    if (T < target)
+        T = fminf(T + THRUST_RAMP_UP * dt, target);
     else
-        T = fmaxf(T - THRUST_RAMP_DOWN * dt, 0.0f);
+        T = fmaxf(T - THRUST_RAMP_DOWN * dt, target);
 }
 
 void Drone::Update(float dt) {
@@ -51,13 +65,37 @@ void Drone::Update(float dt) {
     }
 
     // Reactive yaw: Q,S spin CW; W,A spin CCW (opposite diagonals)
-    float tauY = K_YAW * (rotors[ROTOR_FRONT_LEFT].thrust + rotors[ROTOR_REAR_RIGHT].thrust
-                         - rotors[ROTOR_FRONT_RIGHT].thrust - rotors[ROTOR_REAR_LEFT].thrust);
+    // Easy mode's narrower idle..max thrust range would leave yaw ~4x weaker, so
+    // scale it so a held diagonal pair yaws as fast as it does in hard mode.
+    float kYaw = K_YAW;
+    float thrustRange = GetMaxThrust() - GetIdleThrust();
+    if (assisted && thrustRange > 0.0f) kYaw *= MAX_THRUST / thrustRange;
+    float tauY = kYaw * (rotors[ROTOR_FRONT_LEFT].thrust + rotors[ROTOR_REAR_RIGHT].thrust
+                        - rotors[ROTOR_FRONT_RIGHT].thrust - rotors[ROTOR_REAR_LEFT].thrust);
+
+    // --- Easy-mode auto-level (body-frame angular acceleration) ---
+    // Damped spring that rotates body-up toward world-up. Yaw is left alone.
+    // Specified as acceleration rather than torque so it behaves the same for
+    // any inertia setting; the player's rotor torques can still overpower it.
+    Vector3 assistAcc = {0, 0, 0};
+    if (assisted) {
+        Vector3 up = Vector3RotateByQuaternion({0, 1, 0}, QuaternionInvert(orientation));
+        // Axis = body-Y × up = (up.z, 0, -up.x); its length is sin(tilt)
+        Vector3 axis = {up.z, 0.0f, -up.x};
+        float sinTilt = Vector3Length(axis);
+        float tilt    = acosf(fmaxf(-1.0f, fminf(1.0f, up.y)));
+        if (sinTilt > 1e-4f) axis = Vector3Scale(axis, tilt / sinTilt);  // axis * angle
+
+        const float kp = EASY_LEVEL_FREQ * EASY_LEVEL_FREQ;
+        const float kd = 2.0f * EASY_LEVEL_DAMPING * EASY_LEVEL_FREQ;
+        assistAcc.x = kp * axis.x - kd * angularVel.x;
+        assistAcc.z = kp * axis.z - kd * angularVel.z;
+    }
 
     // --- Angular acceleration and velocity (body frame) ---
-    angularVel.x += (tauX / I_PITCH) * dt;
-    angularVel.y += (tauY / I_YAW)   * dt;
-    angularVel.z += (tauZ / I_ROLL)  * dt;
+    angularVel.x += (tauX / I_PITCH + assistAcc.x) * dt;
+    angularVel.y += (tauY / I_YAW   + assistAcc.y) * dt;
+    angularVel.z += (tauZ / I_ROLL  + assistAcc.z) * dt;
 
     float angDrag = 1.0f - ANG_DRAG * dt;
     angularVel.x *= angDrag;
@@ -100,7 +138,7 @@ void Drone::Update(float dt) {
 
     // --- Spin animation & distance tracking ---
     for (int i = 0; i < ROTOR_COUNT; i++)
-        rotors[i].spinAngle += (rotors[i].thrust / MAX_THRUST) * 30.0f * dt;
+        rotors[i].spinAngle += (rotors[i].thrust / GetMaxThrust()) * 30.0f * dt;
 
     float fwdDist = -position.z;
     if (fwdDist > distanceTraveled)
@@ -135,6 +173,7 @@ float Drone::GetTiltAngle() const {
 
 void Drone::Draw() const {
     Matrix rotMat = QuaternionToMatrix(orientation);
+    const float maxThrust = GetMaxThrust();
 
     rlPushMatrix();
     rlTranslatef(position.x, position.y, position.z);
@@ -155,7 +194,7 @@ void Drone::Draw() const {
     BeginBlendMode(BLEND_ALPHA);
     for (int i = 0; i < ROTOR_COUNT; i++) {
         const Rotor& r   = rotors[i];
-        float discR      = 0.10f + 0.10f * (r.thrust / MAX_THRUST);
+        float discR      = 0.10f + 0.10f * (r.thrust / maxThrust);
         Vector3 discBot  = {r.localPos.x, r.localPos.y - 0.005f, r.localPos.z};
         Vector3 discTop  = {r.localPos.x, r.localPos.y + 0.005f, r.localPos.z};
         DrawCylinderEx(discBot, discTop, discR, discR, 16, Fade(r.color, 0.40f));
@@ -165,7 +204,7 @@ void Drone::Draw() const {
     // Spinner lines (rotate in rotor plane around motor's local Y axis)
     for (int i = 0; i < ROTOR_COUNT; i++) {
         const Rotor& r = rotors[i];
-        float discR    = 0.10f + 0.10f * (r.thrust / MAX_THRUST);
+        float discR    = 0.10f + 0.10f * (r.thrust / maxThrust);
         float cx = r.localPos.x, cy = r.localPos.y, cz = r.localPos.z;
         float ca = cosf(r.spinAngle), sa = sinf(r.spinAngle);
         Vector3 p1 = {cx + discR * ca, cy, cz + discR * sa};
@@ -192,7 +231,7 @@ void Drone::DrawHUDBars(int screenW, int screenH) const {
         DrawRectangle(x, yBar, barW, barH, {30, 30, 30, 200});
         DrawRectangleLines(x, yBar, barW, barH, DARKGRAY);
 
-        int fillH = (int)(barH * rotors[i].thrust / MAX_THRUST);
+        int fillH = (int)(barH * rotors[i].thrust / GetMaxThrust());
         if (fillH > 0)
             DrawRectangle(x, yBar + barH - fillH, barW, fillH, rotors[i].color);
 

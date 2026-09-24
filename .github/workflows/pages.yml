@@ -27,7 +27,7 @@ jobs:
       - name: Setup Emscripten
         uses: emscripten-core/setup-emsdk@v16
         with:
-          version: 4.0.23
+          version: 6.0.9
 
       - name: Configure web build
         run: |
