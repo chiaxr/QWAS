@@ -46,6 +46,7 @@ FetchContent_MakeAvailable(raylib)
 add_library(qwas_game
     src/drone.cpp
     src/game.cpp
+    src/game_ui.cpp
     src/qwas_app.cpp
     src/save.cpp
 )
